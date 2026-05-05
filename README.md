@@ -16,18 +16,27 @@ The executable is built at:
 .build/release/screen-snipper
 ```
 
-Release tags build a universal macOS binary in GitHub Actions. Pushing a tag
-like `v0.1.3` publishes a GitHub release asset named
-`screen-snipper-0.1.3-macos.tar.gz` containing the `screen-snipper` executable
-and the bundled `ScreenSnipper.shortcut`, then opens a matching Homebrew tap PR.
-Configure a `HOMEBREW_TAP_TOKEN` repository secret with permission to push
-branches and open pull requests in `graywzc/homebrew-tap`.
-
 ## Test
 
 ```sh
 swift run screen-snipper-tests
 ```
+
+## Release
+
+Releases are tag-driven. Pushing a `v*` tag builds a universal macOS binary,
+publishes a GitHub release asset, then opens a matching Homebrew tap PR in
+`graywzc/homebrew-tap`.
+
+```sh
+git switch main
+git pull
+git tag v0.1.4
+git push origin v0.1.4
+```
+
+After the workflow finishes, review and merge the generated Homebrew tap PR.
+The release workflow requires the `HOMEBREW_TAP_TOKEN` repository secret.
 
 ## Use
 
