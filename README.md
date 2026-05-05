@@ -1,6 +1,8 @@
-# gif-snip
+# screen-snipper
 
-A tiny macOS screen-region recorder that saves the selected area as a GIF and can also copy the GIF to the clipboard.
+A tiny macOS screen-region recorder for GIFs and MP4 video.
+
+`screen-snipper` opens a click-through selection overlay with a draggable floating toolbar. Drag the rectangle frame to move the capture area, drag the blue handles to resize it, then start and stop recording with the toolbar or the keyboard shortcut.
 
 ## Build
 
@@ -8,45 +10,59 @@ A tiny macOS screen-region recorder that saves the selected area as a GIF and ca
 swift build -c release
 ```
 
-The executable will be at:
+The executable is built at:
 
 ```sh
-.build/release/gif-snip
+.build/release/screen-snipper
 ```
 
 ## Test
 
 ```sh
-swift run gif-snip-tests
+swift run screen-snipper-tests
 ```
 
 ## Use
 
-```sh
-.build/release/gif-snip --duration 4 --fps 10 --output ~/Desktop/snip.gif
-```
-
-Copy the generated GIF to the clipboard too:
+Open the snipping overlay:
 
 ```sh
-.build/release/gif-snip --clipboard
+.build/release/screen-snipper
 ```
 
-Small clipboard-friendly capture:
+Open it as a toggle, useful for a macOS keyboard shortcut:
 
 ```sh
-Scripts/gif-snip-small
+.build/release/screen-snipper --toggle
 ```
 
-Options:
+Recommended macOS shortcut command:
 
-- `--duration <seconds>`: recording length, defaults to `3`.
-- `--fps <frames>`: capture frames per second, defaults to `10`.
-- `--max-width <pixels>`: downscale GIF frames to this width when the capture is larger.
-- `--output <path>`: GIF output path, defaults to `~/Desktop/Screenshot/gif-snip-YYYYMMDD-HHMMSS.gif`.
-- `--clipboard`: put the GIF data on the macOS pasteboard after saving.
-- `--no-save`: do not keep a file; implies clipboard mode and writes a temporary GIF.
+```sh
+/Users/graywzc/projects/screen-snipper/.build/release/screen-snipper --toggle
+```
+
+While the overlay is open:
+
+- `Command-Shift-Space`: start or stop recording.
+- `Command-Shift-7`: close the app when it is focused, matching the suggested launcher shortcut.
+- Floating toolbar: choose GIF or Video, output options, FPS, and max width.
+- Rectangle frame: move the selected region.
+- Blue handles: resize the selected region.
+
+## Options
+
+- `--fps <frames>`: frames per second. Defaults to `10`.
+- `--max-width <pixels>`: downscale captures wider than this value.
+- `--output <path>`: explicit output path. The toolbar folder setting is used when this is omitted.
+- `--clipboard`: copy the recording to the clipboard after saving.
+- `--no-save`: copy to clipboard without keeping a file.
 - `--debug`: print selection and capture coordinate diagnostics.
+- `--toggle`: start `screen-snipper` if closed, or close the running instance.
 - `--help`: show usage.
 
-On first run, macOS may ask for Screen Recording permission. If capture returns a blank/black image, enable Screen Recording for the app that launches `gif-snip` -- usually Terminal, iTerm, or the built executable -- in System Settings > Privacy & Security > Screen & System Audio Recording. Quit and reopen that app, then run `gif-snip` again.
+The toolbar remembers its selected format, folder, clipboard toggle, FPS, max width, and rectangle position between runs.
+
+## Permissions
+
+macOS requires Screen Recording permission before recording can begin. If capture returns a blank or black image, enable Screen Recording for the app that launches `screen-snipper`, usually Terminal, iTerm, your shortcut runner, or the built executable, in System Settings > Privacy & Security > Screen & System Audio Recording. Quit and reopen that app before trying again.

@@ -3,30 +3,32 @@
 import PackageDescription
 
 let package = Package(
-    name: "GifSnip",
+    name: "ScreenSnipper",
     platforms: [
         .macOS(.v14)
     ],
     products: [
-        .library(name: "GifSnipCore", targets: ["GifSnipCore"]),
-        .executable(name: "gif-snip", targets: ["GifSnip"]),
-        .executable(name: "gif-snip-tests", targets: ["GifSnipTests"])
+        .library(name: "ScreenSnipperCore", targets: ["ScreenSnipperCore"]),
+        .executable(name: "screen-snipper", targets: ["ScreenSnipper"]),
+        .executable(name: "screen-snipper-tests", targets: ["ScreenSnipperTests"])
     ],
     targets: [
-        .target(name: "GifSnipCore"),
+        .target(name: "ScreenSnipperCore"),
         .executableTarget(
-            name: "GifSnip",
-            dependencies: ["GifSnipCore"],
+            name: "ScreenSnipper",
+            dependencies: ["ScreenSnipperCore"],
             linkerSettings: [
                 .linkedFramework("AppKit"),
+                .linkedFramework("AVFoundation"),
+                .linkedFramework("Carbon"),
                 .linkedFramework("CoreGraphics"),
                 .linkedFramework("ImageIO"),
                 .linkedFramework("UniformTypeIdentifiers")
             ]
         ),
         .executableTarget(
-            name: "GifSnipTests",
-            dependencies: ["GifSnipCore"]
+            name: "ScreenSnipperTests",
+            dependencies: ["ScreenSnipperCore"]
         )
     ]
 )

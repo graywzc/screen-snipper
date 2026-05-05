@@ -1,5 +1,5 @@
 import Foundation
-import GifSnipCore
+import ScreenSnipperCore
 
 struct TestFailure: Error, CustomStringConvertible {
     let message: String
@@ -31,47 +31,50 @@ func expectThrows<T: Error & Equatable>(
 
 let tests: [(String, () throws -> Void)] = [
     ("parse defaults", {
-        let options = try parseArguments(["gif-snip"])
+        let options = try parseArguments(["screen-snipper"])
 
-        try expect(options.duration == 3, "Default duration should be 3")
         try expect(options.fps == 10, "Default fps should be 10")
         try expect(options.maxWidth == nil, "Default maxWidth should be nil")
         try expect(options.output == nil, "Default output should be nil")
         try expect(options.copyToClipboard == false, "Default clipboard should be false")
         try expect(options.saveFile == true, "Default saveFile should be true")
         try expect(options.debug == false, "Default debug should be false")
+        try expect(options.toggle == false, "Default toggle should be false")
     }),
     ("parse recording options", {
         let options = try parseArguments([
-            "gif-snip",
-            "--duration", "4",
+            "screen-snipper",
             "--fps", "5",
             "--max-width", "480",
             "--clipboard",
             "--debug"
         ])
 
-        try expect(options.duration == 4, "Duration should parse")
         try expect(options.fps == 5, "FPS should parse")
         try expect(options.maxWidth == 480, "Max width should parse")
         try expect(options.copyToClipboard == true, "Clipboard should parse")
         try expect(options.debug == true, "Debug should parse")
     }),
     ("no-save implies clipboard", {
-        let options = try parseArguments(["gif-snip", "--no-save"])
+        let options = try parseArguments(["screen-snipper", "--no-save"])
 
         try expect(options.saveFile == false, "no-save should disable file preservation")
         try expect(options.copyToClipboard == true, "no-save should imply clipboard")
     }),
+    ("parse toggle", {
+        let options = try parseArguments(["screen-snipper", "--toggle"])
+
+        try expect(options.toggle == true, "Toggle should parse")
+    }),
     ("output expands tilde", {
-        let options = try parseArguments(["gif-snip", "--output", "~/Desktop/test.gif"])
+        let options = try parseArguments(["screen-snipper", "--output", "~/Desktop/test.gif"])
 
         try expect(options.output?.path.hasSuffix("/Desktop/test.gif") == true, "Output suffix should match")
         try expect(options.output?.path.contains("~") == false, "Output should expand tilde")
     }),
     ("reject invalid fps", {
-        try expectThrows(GifSnipError.invalidOption("--fps requires a positive number.")) {
-            _ = try parseArguments(["gif-snip", "--fps", "0"])
+        try expectThrows(ScreenSnipperError.invalidOption("--fps requires a positive number.")) {
+            _ = try parseArguments(["screen-snipper", "--fps", "0"])
         }
     }),
     ("default output uses Screenshot folder", {
@@ -80,10 +83,49 @@ let tests: [(String, () throws -> Void)] = [
         let url = defaultOutputURL(date: date, homeDirectory: home)
 
         try expect(
-            url.path.contains("/Users/tester/Desktop/Screenshot/gif-snip-"),
+            url.path.contains("/Users/tester/Desktop/Screenshot/screen-snipper-"),
             "Default output should be inside Desktop/Screenshot"
         )
         try expect(url.path.hasSuffix(".gif"), "Default output should be a GIF")
+    }),
+    ("default output supports custom base directory", {
+        let date = Date(timeIntervalSince1970: 1_777_777_777)
+        let url = defaultOutputURL(
+            date: date,
+            baseDirectory: URL(fileURLWithPath: "/Users/tester/Documents"),
+            folderName: "Screen Snipper"
+        )
+
+        try expect(
+            url.path.contains("/Users/tester/Documents/Screen Snipper/screen-snipper-"),
+            "Custom output should use the provided base directory and folder"
+        )
+        try expect(url.path.hasSuffix(".gif"), "Custom output should be a GIF")
+    }),
+    ("default output can write directly into base directory", {
+        let date = Date(timeIntervalSince1970: 1_777_777_777)
+        let url = defaultOutputURL(
+            date: date,
+            baseDirectory: URL(fileURLWithPath: "/Users/tester/Desktop/Screenshot"),
+            folderName: nil
+        )
+
+        try expect(
+            url.path.contains("/Users/tester/Desktop/Screenshot/screen-snipper-"),
+            "Direct output should not add a nested folder"
+        )
+        try expect(url.path.hasSuffix(".gif"), "Direct output should be a GIF")
+    }),
+    ("default output supports custom extension", {
+        let date = Date(timeIntervalSince1970: 1_777_777_777)
+        let url = defaultOutputURL(
+            date: date,
+            baseDirectory: URL(fileURLWithPath: "/Users/tester/Desktop/Screenshot"),
+            folderName: nil,
+            fileExtension: "mp4"
+        )
+
+        try expect(url.path.hasSuffix(".mp4"), "Custom extension should be used")
     })
 ]
 
