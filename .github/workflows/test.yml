@@ -16,4 +16,4 @@ jobs:
         run: swift build
 
       - name: Run tests
-        run: swift run gif-snip-tests
+        run: swift run screen-snipper-tests

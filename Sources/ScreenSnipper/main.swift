@@ -4,7 +4,7 @@ import Carbon
 import CoreGraphics
 import Darwin
 import Foundation
-import GifSnipCore
+import ScreenSnipperCore
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -72,7 +72,7 @@ enum HotKeyError: Error, CustomStringConvertible {
 
 enum ToggleController {
     private static var pidURL: URL {
-        FileManager.default.temporaryDirectory.appendingPathComponent("gif-snip.pid")
+        FileManager.default.temporaryDirectory.appendingPathComponent("screen-snipper.pid")
     }
 
     static func closeRunningInstanceIfNeeded() -> Bool {
@@ -754,7 +754,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.toolbar.toggleRecordingFromShortcut()
             }
         } catch {
-            fputs("gif-snip: could not register Command-Shift-Space shortcut: \(error)\n", stderr)
+            fputs("screen-snipper: could not register Command-Shift-Space shortcut: \(error)\n", stderr)
         }
 
         toolbar.begin(
@@ -794,7 +794,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startRecording(toolbarSelection: CaptureToolbarSelection) {
         guard let selectionRect = selector.selectionRect else {
-            fail(GifSnipError.selectionCancelled)
+            fail(ScreenSnipperError.selectionCancelled)
             return
         }
 
@@ -852,7 +852,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.finishRecording()
             } catch {
                 self.finishRecording()
-                fputs("gif-snip: \(error)\n", stderr)
+                fputs("screen-snipper: \(error)\n", stderr)
             }
         }
     }
@@ -880,7 +880,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if !shouldSaveFile(toolbarSelection: toolbarSelection) {
             return FileManager.default.temporaryDirectory
-                .appendingPathComponent("gif-snip-\(UUID().uuidString)")
+                .appendingPathComponent("screen-snipper-\(UUID().uuidString)")
                 .appendingPathExtension(toolbarSelection.format.fileExtension)
         }
 
@@ -917,7 +917,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func fail(_ error: Error) {
-        fputs("gif-snip: \(error)\n", stderr)
+        fputs("screen-snipper: \(error)\n", stderr)
         NSApp.terminate(nil)
     }
 }
@@ -933,7 +933,7 @@ struct CaptureRegion {
         guard let screen = NSScreen.screen(containingLargestAreaOf: selectionRect),
               let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
         else {
-            throw GifSnipError.displayNotFound(selectionRect)
+            throw ScreenSnipperError.displayNotFound(selectionRect)
         }
 
         let clippedRect = selectionRect.intersection(screen.frame)
@@ -1017,7 +1017,7 @@ enum GifRecorder {
             0,
             nil
         ) else {
-            throw GifSnipError.gifDestinationFailed(outputURL)
+            throw ScreenSnipperError.gifDestinationFailed(outputURL)
         }
 
         CGImageDestinationSetProperties(destination, fileProperties)
@@ -1032,7 +1032,7 @@ enum GifRecorder {
 
             guard let capturedImage = CGDisplayCreateImage(region.displayID, rect: region.displayRect) else {
                 if capturedFrames == 0 {
-                    throw GifSnipError.captureFailed
+                    throw ScreenSnipperError.captureFailed
                 }
                 continue
             }
@@ -1048,11 +1048,11 @@ enum GifRecorder {
         }
 
         guard capturedFrames > 0 else {
-            throw GifSnipError.noFramesCaptured
+            throw ScreenSnipperError.noFramesCaptured
         }
 
         if !CGImageDestinationFinalize(destination) {
-            throw GifSnipError.gifFinalizeFailed(outputURL)
+            throw ScreenSnipperError.gifFinalizeFailed(outputURL)
         }
     }
 
@@ -1095,7 +1095,7 @@ enum VideoRecorder {
         try? FileManager.default.removeItem(at: outputURL)
 
         guard let firstCapture = CGDisplayCreateImage(region.displayID, rect: region.displayRect) else {
-            throw GifSnipError.captureFailed
+            throw ScreenSnipperError.captureFailed
         }
 
         let firstImage = resize(firstCapture, maxWidth: maxWidth) ?? firstCapture
@@ -1104,7 +1104,7 @@ enum VideoRecorder {
         do {
             writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
         } catch {
-            throw GifSnipError.videoDestinationFailed(outputURL)
+            throw ScreenSnipperError.videoDestinationFailed(outputURL)
         }
 
         let input = AVAssetWriterInput(
@@ -1127,12 +1127,12 @@ enum VideoRecorder {
         )
 
         guard writer.canAdd(input) else {
-            throw GifSnipError.videoDestinationFailed(outputURL)
+            throw ScreenSnipperError.videoDestinationFailed(outputURL)
         }
         writer.add(input)
 
         guard writer.startWriting() else {
-            throw GifSnipError.videoDestinationFailed(outputURL)
+            throw ScreenSnipperError.videoDestinationFailed(outputURL)
         }
         writer.startSession(atSourceTime: .zero)
 
@@ -1165,7 +1165,7 @@ enum VideoRecorder {
         await writer.finishWriting()
 
         if writer.status != .completed {
-            throw GifSnipError.videoFinalizeFailed(outputURL)
+            throw ScreenSnipperError.videoFinalizeFailed(outputURL)
         }
     }
 
@@ -1183,7 +1183,7 @@ enum VideoRecorder {
         }
 
         guard let pixelBuffer = pixelBuffer(from: image, outputSize: outputSize) else {
-            throw GifSnipError.videoFrameAppendFailed(outputURL)
+            throw ScreenSnipperError.videoFrameAppendFailed(outputURL)
         }
 
         let frameTime = CMTime(
@@ -1191,7 +1191,7 @@ enum VideoRecorder {
             timescale: CMTimeScale(max(1, Int((1 / frameDuration).rounded())))
         )
         if !adaptor.append(pixelBuffer, withPresentationTime: frameTime) {
-            throw GifSnipError.videoFrameAppendFailed(outputURL)
+            throw ScreenSnipperError.videoFrameAppendFailed(outputURL)
         }
     }
 
@@ -1274,7 +1274,7 @@ enum Permissions {
             return
         }
 
-        throw GifSnipError.screenRecordingPermissionDenied
+        throw ScreenSnipperError.screenRecordingPermissionDenied
     }
 }
 
@@ -1309,6 +1309,6 @@ do {
     app.setActivationPolicy(.accessory)
     app.run()
 } catch {
-    fputs("gif-snip: \(error)\n", stderr)
+    fputs("screen-snipper: \(error)\n", stderr)
     Foundation.exit(1)
 }

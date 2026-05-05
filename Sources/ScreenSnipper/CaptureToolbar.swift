@@ -1,5 +1,5 @@
 import AppKit
-import GifSnipCore
+import ScreenSnipperCore
 import SwiftUI
 
 enum RecordingFormat: String, CaseIterable, Identifiable {

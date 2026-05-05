@@ -1,8 +1,8 @@
-# gif-snip
+# screen-snipper
 
 A tiny macOS screen-region recorder for GIFs and MP4 video.
 
-`gif-snip` opens a click-through selection overlay with a draggable floating toolbar. Drag the rectangle frame to move the capture area, drag the blue handles to resize it, then start and stop recording with the toolbar or the keyboard shortcut.
+`screen-snipper` opens a click-through selection overlay with a draggable floating toolbar. Drag the rectangle frame to move the capture area, drag the blue handles to resize it, then start and stop recording with the toolbar or the keyboard shortcut.
 
 ## Build
 
@@ -13,13 +13,13 @@ swift build -c release
 The executable is built at:
 
 ```sh
-.build/release/gif-snip
+.build/release/screen-snipper
 ```
 
 ## Test
 
 ```sh
-swift run gif-snip-tests
+swift run screen-snipper-tests
 ```
 
 ## Use
@@ -27,19 +27,19 @@ swift run gif-snip-tests
 Open the snipping overlay:
 
 ```sh
-.build/release/gif-snip
+.build/release/screen-snipper
 ```
 
 Open it as a toggle, useful for a macOS keyboard shortcut:
 
 ```sh
-.build/release/gif-snip --toggle
+.build/release/screen-snipper --toggle
 ```
 
 Recommended macOS shortcut command:
 
 ```sh
-/Users/graywzc/projects/gif-snip/.build/release/gif-snip --toggle
+/Users/graywzc/projects/screen-snipper/.build/release/screen-snipper --toggle
 ```
 
 While the overlay is open:
@@ -58,11 +58,11 @@ While the overlay is open:
 - `--clipboard`: copy the recording to the clipboard after saving.
 - `--no-save`: copy to clipboard without keeping a file.
 - `--debug`: print selection and capture coordinate diagnostics.
-- `--toggle`: start `gif-snip` if closed, or close the running instance.
+- `--toggle`: start `screen-snipper` if closed, or close the running instance.
 - `--help`: show usage.
 
 The toolbar remembers its selected format, folder, clipboard toggle, FPS, max width, and rectangle position between runs.
 
 ## Permissions
 
-macOS requires Screen Recording permission before recording can begin. If capture returns a blank or black image, enable Screen Recording for the app that launches `gif-snip`, usually Terminal, iTerm, your shortcut runner, or the built executable, in System Settings > Privacy & Security > Screen & System Audio Recording. Quit and reopen that app before trying again.
+macOS requires Screen Recording permission before recording can begin. If capture returns a blank or black image, enable Screen Recording for the app that launches `screen-snipper`, usually Terminal, iTerm, your shortcut runner, or the built executable, in System Settings > Privacy & Security > Screen & System Audio Recording. Quit and reopen that app before trying again.
