@@ -717,7 +717,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let options: Options
     private let toolbar: CaptureToolbarController
     private let selector = SelectionController()
-    private var launcherShortcutMonitor: Any?
+    private var keyboardShortcutMonitor: Any?
     private var recordHotKey: RecordHotKey?
     private var recordingTask: Task<Void, Never>?
     private var toggleQuitSignal: DispatchSourceSignal?
@@ -740,13 +740,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.toggleQuitSignal = toggleQuitSignal
 
         selector.show()
-        launcherShortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard Self.isLauncherShortcut(event) else {
-                return event
+        keyboardShortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if Self.isLauncherShortcut(event) {
+                self?.cancel()
+                return nil
             }
 
-            self?.cancel()
-            return nil
+            if Self.isRecordShortcut(event) {
+                self?.toolbar.toggleRecordingFromShortcut()
+                return nil
+            }
+
+            return event
         }
 
         do {
@@ -770,8 +775,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         ToggleController.unregisterCurrentProcess()
         toggleQuitSignal?.cancel()
-        if let launcherShortcutMonitor {
-            NSEvent.removeMonitor(launcherShortcutMonitor)
+        if let keyboardShortcutMonitor {
+            NSEvent.removeMonitor(keyboardShortcutMonitor)
         }
         recordHotKey = nil
     }
@@ -779,6 +784,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static func isLauncherShortcut(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         return flags == [.command, .shift] && event.keyCode == 26
+    }
+
+    private static func isRecordShortcut(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return flags == [.command, .shift] && event.keyCode == UInt16(kVK_Space)
     }
 
     private func toggleRecording(toolbarSelection: CaptureToolbarSelection) {
