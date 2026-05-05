@@ -600,6 +600,7 @@ final class SelectionController {
             window.backgroundColor = .clear
             window.isOpaque = false
             window.ignoresMouseEvents = true
+            window.sharingType = .none
             window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
             window.contentView = view
             windows.append(window)
@@ -647,6 +648,7 @@ final class SelectionController {
             window.isOpaque = false
             window.hasShadow = false
             window.ignoresMouseEvents = false
+            window.sharingType = .none
             window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
             window.contentView = view
             window.orderFrontRegardless()
@@ -811,8 +813,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let stopSignal = RecordingStopSignal()
         self.stopSignal = stopSignal
         toolbar.setRecording(true)
-        selector.hide()
-        toolbar.hide()
 
         recordingTask = Task {
             do {
@@ -873,8 +873,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         stopSignal = nil
         recordingTask = nil
         toolbar.setRecording(false)
-        selector.show()
-        toolbar.show()
     }
 
     private func cancel() {

@@ -261,6 +261,7 @@ final class CaptureToolbarController {
         panel.level = .floating
         panel.backgroundColor = .clear
         panel.isOpaque = false
+        panel.sharingType = .none
         panel.contentView = ToolbarHostingView(
             rootView: CaptureToolbarView(
                 state: state,
