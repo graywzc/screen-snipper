@@ -801,6 +801,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let stopSignal = RecordingStopSignal()
         self.stopSignal = stopSignal
         toolbar.setRecording(true)
+        selector.hide()
+        toolbar.hide()
 
         recordingTask = Task {
             do {
@@ -861,6 +863,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         stopSignal = nil
         recordingTask = nil
         toolbar.setRecording(false)
+        selector.show()
+        toolbar.show()
     }
 
     private func cancel() {
@@ -1011,35 +1015,23 @@ enum GifRecorder {
             ]
         ] as CFDictionary
 
-        guard let destination = CGImageDestinationCreateWithURL(
-            outputURL as CFURL,
-            UTType.gif.identifier as CFString,
-            0,
-            nil
-        ) else {
-            throw ScreenSnipperError.gifDestinationFailed(outputURL)
-        }
-
-        CGImageDestinationSetProperties(destination, fileProperties)
-
-        var capturedFrames = 0
+        var frames: [CGImage] = []
         while true {
-            if await stopSignal.isStopped(), capturedFrames > 0 {
+            if await stopSignal.isStopped(), !frames.isEmpty {
                 break
             }
 
             let targetTime = Date().addingTimeInterval(delay)
 
             guard let capturedImage = CGDisplayCreateImage(region.displayID, rect: region.displayRect) else {
-                if capturedFrames == 0 {
+                if frames.isEmpty {
                     throw ScreenSnipperError.captureFailed
                 }
                 continue
             }
 
             let image = resize(capturedImage, maxWidth: maxWidth) ?? capturedImage
-            CGImageDestinationAddImage(destination, image, frameProperties)
-            capturedFrames += 1
+            frames.append(image)
 
             let remaining = targetTime.timeIntervalSinceNow
             if remaining > 0 {
@@ -1047,8 +1039,23 @@ enum GifRecorder {
             }
         }
 
-        guard capturedFrames > 0 else {
+        guard !frames.isEmpty else {
             throw ScreenSnipperError.noFramesCaptured
+        }
+
+        guard let destination = CGImageDestinationCreateWithURL(
+            outputURL as CFURL,
+            UTType.gif.identifier as CFString,
+            frames.count,
+            nil
+        ) else {
+            throw ScreenSnipperError.gifDestinationFailed(outputURL)
+        }
+
+        CGImageDestinationSetProperties(destination, fileProperties)
+
+        for image in frames {
+            CGImageDestinationAddImage(destination, image, frameProperties)
         }
 
         if !CGImageDestinationFinalize(destination) {

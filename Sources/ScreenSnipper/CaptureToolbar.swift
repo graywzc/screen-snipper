@@ -233,6 +233,14 @@ final class CaptureToolbarController {
         state.isRecording = isRecording
     }
 
+    func hide() {
+        panel?.orderOut(nil)
+    }
+
+    func show() {
+        panel?.orderFrontRegardless()
+    }
+
     func cancel() {
         panel?.orderOut(nil)
         cancelAction?()
