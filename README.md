@@ -16,6 +16,11 @@ The executable is built at:
 .build/release/screen-snipper
 ```
 
+Release tags build a universal macOS binary in GitHub Actions. Pushing a tag
+like `v0.1.3` publishes a GitHub release asset named
+`screen-snipper-0.1.3-macos.tar.gz` containing the `screen-snipper` executable
+and the bundled `ScreenSnipper.shortcut`.
+
 ## Test
 
 ```sh

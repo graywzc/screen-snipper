@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "asset=screen-snipper-${version}-macos.tar.gz" >> "${GITHUB_OUTPUT}"
+
+      - name: Build universal binary
+        run: swift build -c release --arch arm64 --arch x86_64
+
+      - name: Package release asset
+        run: |
+          bin_path="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
+          mkdir -p dist/package
+          cp "${bin_path}/screen-snipper" dist/package/
+          cp Shortcuts/ScreenSnipper.shortcut dist/package/
+          lipo -info dist/package/screen-snipper
+          tar -C dist/package -czf "dist/${{ steps.version.outputs.asset }}" screen-snipper ScreenSnipper.shortcut
+          shasum -a 256 "dist/${{ steps.version.outputs.asset }}"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            "dist/${{ steps.version.outputs.asset }}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes
