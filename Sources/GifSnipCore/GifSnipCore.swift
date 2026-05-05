@@ -8,6 +8,7 @@ public struct Options: Equatable {
     public var copyToClipboard = false
     public var saveFile = true
     public var debug = false
+    public var toggle = false
 
     public init() {}
 }
@@ -20,6 +21,9 @@ public enum GifSnipError: Error, CustomStringConvertible, Equatable {
     case displayNotFound(CGRect)
     case gifDestinationFailed(URL)
     case gifFinalizeFailed(URL)
+    case videoDestinationFailed(URL)
+    case videoFrameAppendFailed(URL)
+    case videoFinalizeFailed(URL)
     case noFramesCaptured
 
     public var description: String {
@@ -35,6 +39,9 @@ public enum GifSnipError: Error, CustomStringConvertible, Equatable {
         case .displayNotFound(let rect): "Could not find a display for selected rect \(rect)."
         case .gifDestinationFailed(let url): "Could not create GIF at \(url.path)."
         case .gifFinalizeFailed(let url): "Could not finish GIF at \(url.path)."
+        case .videoDestinationFailed(let url): "Could not create video at \(url.path)."
+        case .videoFrameAppendFailed(let url): "Could not add a frame to video at \(url.path)."
+        case .videoFinalizeFailed(let url): "Could not finish video at \(url.path)."
         case .noFramesCaptured: "No frames were captured."
         }
     }
@@ -54,7 +61,10 @@ public enum GifSnipError: Error, CustomStringConvertible, Equatable {
                 left.size.width == right.size.width &&
                 left.size.height == right.size.height
         case (.gifDestinationFailed(let left), .gifDestinationFailed(let right)),
-             (.gifFinalizeFailed(let left), .gifFinalizeFailed(let right)):
+             (.gifFinalizeFailed(let left), .gifFinalizeFailed(let right)),
+             (.videoDestinationFailed(let left), .videoDestinationFailed(let right)),
+             (.videoFrameAppendFailed(let left), .videoFrameAppendFailed(let right)),
+             (.videoFinalizeFailed(let left), .videoFinalizeFailed(let right)):
             left == right
         default:
             false
@@ -101,6 +111,8 @@ public func parseArguments(_ arguments: [String]) throws -> Options {
             options.copyToClipboard = true
         case "--debug":
             options.debug = true
+        case "--toggle":
+            options.toggle = true
         case "--help", "-h":
             printUsage()
             Foundation.exit(0)
@@ -114,14 +126,19 @@ public func parseArguments(_ arguments: [String]) throws -> Options {
     return options
 }
 
-public func defaultOutputURL(date: Date, homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+public func defaultOutputURL(
+    date: Date,
+    homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+    baseDirectory: URL? = nil,
+    folderName: String? = "Screenshot",
+    fileExtension: String = "gif"
+) -> URL {
     let formatter = DateFormatter()
     formatter.dateFormat = "yyyyMMdd-HHmmss"
-    let filename = "gif-snip-\(formatter.string(from: date)).gif"
-    return homeDirectory
-        .appendingPathComponent("Desktop")
-        .appendingPathComponent("Screenshot")
-        .appendingPathComponent(filename)
+    let filename = "gif-snip-\(formatter.string(from: date)).\(fileExtension)"
+    let baseDirectory = baseDirectory ?? homeDirectory.appendingPathComponent("Desktop")
+    let directory = folderName.map { baseDirectory.appendingPathComponent($0) } ?? baseDirectory
+    return directory.appendingPathComponent(filename)
 }
 
 public func printUsage() {
@@ -136,6 +153,7 @@ public func printUsage() {
       --clipboard           Copy the GIF to the clipboard after saving.
       --no-save             Copy to clipboard without keeping a file.
       --debug               Print capture coordinate diagnostics.
+      --toggle              Start gif-snip if closed, or close the running instance.
       --help                Show this help.
     """)
 }

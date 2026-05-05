@@ -19,6 +19,8 @@ let package = Package(
             dependencies: ["GifSnipCore"],
             linkerSettings: [
                 .linkedFramework("AppKit"),
+                .linkedFramework("AVFoundation"),
+                .linkedFramework("Carbon"),
                 .linkedFramework("CoreGraphics"),
                 .linkedFramework("ImageIO"),
                 .linkedFramework("UniformTypeIdentifiers")
