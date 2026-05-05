@@ -11,8 +11,17 @@ permissions:
 jobs:
   release:
     runs-on: macos-15
+    env:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
     steps:
+      - name: Validate Homebrew tap token
+        run: |
+          if [ -z "${HOMEBREW_TAP_TOKEN}" ]; then
+            echo "::error::Set HOMEBREW_TAP_TOKEN so releases can open the matching Homebrew tap PR."
+            exit 1
+          fi
+
       - name: Check out repository
         uses: actions/checkout@v4
 
@@ -27,6 +36,7 @@ jobs:
         run: swift build -c release --arch arm64 --arch x86_64
 
       - name: Package release asset
+        id: package
         run: |
           bin_path="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
           mkdir -p dist/package
@@ -34,7 +44,9 @@ jobs:
           cp Shortcuts/ScreenSnipper.shortcut dist/package/
           lipo -info dist/package/screen-snipper
           tar -C dist/package -czf "dist/${{ steps.version.outputs.asset }}" screen-snipper ScreenSnipper.shortcut
-          shasum -a 256 "dist/${{ steps.version.outputs.asset }}"
+          sha256="$(shasum -a 256 "dist/${{ steps.version.outputs.asset }}" | awk '{print $1}')"
+          echo "${sha256}  dist/${{ steps.version.outputs.asset }}"
+          echo "sha256=${sha256}" >> "${GITHUB_OUTPUT}"
 
       - name: Publish GitHub release
         env:
@@ -44,3 +56,55 @@ jobs:
             "dist/${{ steps.version.outputs.asset }}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes
+
+      - name: Check out Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: graywzc/homebrew-tap
+          path: homebrew-tap
+          token: ${{ env.HOMEBREW_TAP_TOKEN }}
+
+      - name: Update Homebrew formula
+        working-directory: homebrew-tap
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA256: ${{ steps.package.outputs.sha256 }}
+        run: |
+          formula="Formula/screen-snipper.rb"
+          url="https://github.com/graywzc/screen-snipper/releases/download/v${VERSION}/screen-snipper-${VERSION}-macos.tar.gz"
+          perl -0pi -e "s|url \".*screen-snipper.*\"|url \"${url}\"|; s|sha256 \"[a-f0-9]+\"|sha256 \"${SHA256}\"|" "${formula}"
+          brew style "${formula}"
+          brew audit --formula screen-snipper
+
+      - name: Open Homebrew formula PR
+        working-directory: homebrew-tap
+        env:
+          GH_TOKEN: ${{ env.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA256: ${{ steps.package.outputs.sha256 }}
+        run: |
+          branch="screen-snipper-${VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "${branch}"
+          git add Formula/screen-snipper.rb
+
+          if git diff --cached --quiet; then
+            echo "Formula already points to screen-snipper ${VERSION}."
+            exit 0
+          fi
+
+          git commit -m "Update screen-snipper to ${VERSION}"
+          git push --force-with-lease origin "${branch}"
+
+          title="Update screen-snipper to ${VERSION}"
+          body="Updates screen-snipper to the v${VERSION} prebuilt universal macOS release asset.
+
+Release: https://github.com/graywzc/screen-snipper/releases/tag/v${VERSION}
+SHA256: ${SHA256}"
+
+          if gh pr view "${branch}" --repo graywzc/homebrew-tap >/dev/null 2>&1; then
+            gh pr edit "${branch}" --repo graywzc/homebrew-tap --title "${title}" --body "${body}"
+          else
+            gh pr create --repo graywzc/homebrew-tap --base main --head "${branch}" --title "${title}" --body "${body}"
+          fi
