@@ -117,12 +117,16 @@ enum ToggleController {
     }
 }
 
-final class RecordHotKey: @unchecked Sendable {
+final class AppHotKey: @unchecked Sendable {
     private var hotKeyRef: EventHotKeyRef?
     private var handlerRef: EventHandlerRef?
+    private let id: UInt32
+    private let keyCode: UInt32
     private let action: () -> Void
 
-    init(action: @escaping () -> Void) throws {
+    init(id: UInt32, keyCode: UInt32, action: @escaping () -> Void) throws {
+        self.id = id
+        self.keyCode = keyCode
         self.action = action
         try install()
     }
@@ -158,11 +162,11 @@ final class RecordHotKey: @unchecked Sendable {
                     nil,
                     &hotKeyID
                 )
-                guard status == noErr, hotKeyID.id == 1 else {
+                let hotKey = Unmanaged<AppHotKey>.fromOpaque(userData).takeUnretainedValue()
+                guard status == noErr, hotKeyID.id == hotKey.id else {
                     return noErr
                 }
 
-                let hotKey = Unmanaged<RecordHotKey>.fromOpaque(userData).takeUnretainedValue()
                 DispatchQueue.main.async {
                     hotKey.action()
                 }
@@ -178,10 +182,10 @@ final class RecordHotKey: @unchecked Sendable {
         }
         self.handlerRef = handlerRef
 
-        let hotKeyID = EventHotKeyID(signature: fourCharCode("GSNP"), id: 1)
+        let hotKeyID = EventHotKeyID(signature: fourCharCode("GSNP"), id: id)
         var hotKeyRef: EventHotKeyRef?
         let registerStatus = RegisterEventHotKey(
-            UInt32(kVK_Space),
+            keyCode,
             UInt32(cmdKey | shiftKey),
             hotKeyID,
             GetApplicationEventTarget(),
@@ -720,7 +724,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let toolbar: CaptureToolbarController
     private let selector = SelectionController()
     private var keyboardShortcutMonitor: Any?
-    private var recordHotKey: RecordHotKey?
+    private var recordHotKey: AppHotKey?
+    private var closeHotKey: AppHotKey?
     private var recordingTask: Task<Void, Never>?
     private var toggleQuitSignal: DispatchSourceSignal?
     private var stopSignal: RecordingStopSignal?
@@ -757,11 +762,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         do {
-            recordHotKey = try RecordHotKey { [weak self] in
+            recordHotKey = try AppHotKey(id: 1, keyCode: UInt32(kVK_Space)) { [weak self] in
                 self?.toolbar.toggleRecordingFromShortcut()
             }
         } catch {
             fputs("screen-snipper: could not register Command-Shift-Space shortcut: \(error)\n", stderr)
+        }
+
+        do {
+            closeHotKey = try AppHotKey(id: 2, keyCode: 26) { [weak self] in
+                self?.cancel()
+            }
+        } catch {
+            fputs("screen-snipper: could not register Command-Shift-7 shortcut: \(error)\n", stderr)
         }
 
         toolbar.begin(
@@ -781,6 +794,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSEvent.removeMonitor(keyboardShortcutMonitor)
         }
         recordHotKey = nil
+        closeHotKey = nil
     }
 
     private static func isLauncherShortcut(_ event: NSEvent) -> Bool {
