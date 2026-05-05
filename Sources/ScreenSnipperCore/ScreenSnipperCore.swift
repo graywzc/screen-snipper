@@ -1,7 +1,6 @@
 import Foundation
 
 public struct Options: Equatable {
-    public var duration: TimeInterval = 3
     public var fps: Double = 10
     public var maxWidth: Int?
     public var output: URL?
@@ -80,12 +79,6 @@ public func parseArguments(_ arguments: [String]) throws -> Options {
         let argument = arguments[index]
 
         switch argument {
-        case "--duration":
-            index += 1
-            guard index < arguments.count, let duration = Double(arguments[index]), duration > 0 else {
-                throw ScreenSnipperError.invalidOption("--duration requires a positive number.")
-            }
-            options.duration = duration
         case "--fps":
             index += 1
             guard index < arguments.count, let fps = Double(arguments[index]), fps > 0 else {
@@ -146,11 +139,10 @@ public func printUsage() {
     Usage: screen-snipper [options]
 
     Options:
-      --duration <seconds>  Recording length. Defaults to 3.
       --fps <frames>        Frames per second. Defaults to 10.
-      --max-width <pixels>   Downscale GIF frames to this width when larger.
-      --output <path>       GIF output path. Defaults to ~/Desktop/Screenshot/screen-snipper-YYYYMMDD-HHMMSS.gif.
-      --clipboard           Copy the GIF to the clipboard after saving.
+      --max-width <pixels>  Downscale captures wider than this value.
+      --output <path>       Output path. Defaults to ~/Desktop/Screenshot/screen-snipper-YYYYMMDD-HHMMSS.gif.
+      --clipboard           Copy the recording to the clipboard after saving.
       --no-save             Copy to clipboard without keeping a file.
       --debug               Print capture coordinate diagnostics.
       --toggle              Start screen-snipper if closed, or close the running instance.

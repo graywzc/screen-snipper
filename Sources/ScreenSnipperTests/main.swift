@@ -33,7 +33,6 @@ let tests: [(String, () throws -> Void)] = [
     ("parse defaults", {
         let options = try parseArguments(["screen-snipper"])
 
-        try expect(options.duration == 3, "Default duration should be 3")
         try expect(options.fps == 10, "Default fps should be 10")
         try expect(options.maxWidth == nil, "Default maxWidth should be nil")
         try expect(options.output == nil, "Default output should be nil")
@@ -45,14 +44,12 @@ let tests: [(String, () throws -> Void)] = [
     ("parse recording options", {
         let options = try parseArguments([
             "screen-snipper",
-            "--duration", "4",
             "--fps", "5",
             "--max-width", "480",
             "--clipboard",
             "--debug"
         ])
 
-        try expect(options.duration == 4, "Duration should parse")
         try expect(options.fps == 5, "FPS should parse")
         try expect(options.maxWidth == 480, "Max width should parse")
         try expect(options.copyToClipboard == true, "Clipboard should parse")
