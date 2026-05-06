@@ -117,22 +117,21 @@ enum ToggleController {
     }
 }
 
-final class AppHotKey: @unchecked Sendable {
-    private var hotKeyRef: EventHotKeyRef?
+final class AppHotKeys: @unchecked Sendable {
+    private var hotKeyRefs: [EventHotKeyRef] = []
     private var handlerRef: EventHandlerRef?
-    private let id: UInt32
-    private let keyCode: UInt32
-    private let action: () -> Void
+    private let dispatcher: AppShortcutDispatcher
 
-    init(id: UInt32, keyCode: UInt32, action: @escaping () -> Void) throws {
-        self.id = id
-        self.keyCode = keyCode
-        self.action = action
+    init(record: @escaping @Sendable () -> Void, close: @escaping @Sendable () -> Void) throws {
+        dispatcher = AppShortcutDispatcher(
+            record: { OperationQueue.main.addOperation(record) },
+            close: { OperationQueue.main.addOperation(close) }
+        )
         try install()
     }
 
     deinit {
-        if let hotKeyRef {
+        for hotKeyRef in hotKeyRefs {
             UnregisterEventHotKey(hotKeyRef)
         }
         if let handlerRef {
@@ -162,13 +161,9 @@ final class AppHotKey: @unchecked Sendable {
                     nil,
                     &hotKeyID
                 )
-                let hotKey = Unmanaged<AppHotKey>.fromOpaque(userData).takeUnretainedValue()
-                guard status == noErr, hotKeyID.id == hotKey.id else {
+                let hotKeys = Unmanaged<AppHotKeys>.fromOpaque(userData).takeUnretainedValue()
+                guard status == noErr, hotKeys.dispatcher.dispatch(id: hotKeyID.id) else {
                     return OSStatus(eventNotHandledErr)
-                }
-
-                DispatchQueue.main.async {
-                    hotKey.action()
                 }
                 return noErr
             },
@@ -181,8 +176,12 @@ final class AppHotKey: @unchecked Sendable {
             throw HotKeyError.installHandlerFailed(installStatus)
         }
         self.handlerRef = handlerRef
+        try register(id: .record, keyCode: UInt32(kVK_Space))
+        try register(id: .close, keyCode: 26)
+    }
 
-        let hotKeyID = EventHotKeyID(signature: fourCharCode("GSNP"), id: id)
+    private func register(id: AppShortcut, keyCode: UInt32) throws {
+        let hotKeyID = EventHotKeyID(signature: fourCharCode("GSNP"), id: id.rawValue)
         var hotKeyRef: EventHotKeyRef?
         let registerStatus = RegisterEventHotKey(
             keyCode,
@@ -195,7 +194,9 @@ final class AppHotKey: @unchecked Sendable {
         guard registerStatus == noErr else {
             throw HotKeyError.registerFailed(registerStatus)
         }
-        self.hotKeyRef = hotKeyRef
+        if let hotKeyRef {
+            hotKeyRefs.append(hotKeyRef)
+        }
     }
 
     private func fourCharCode(_ string: String) -> OSType {
@@ -724,8 +725,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let toolbar: CaptureToolbarController
     private let selector = SelectionController()
     private var keyboardShortcutMonitor: Any?
-    private var recordHotKey: AppHotKey?
-    private var closeHotKey: AppHotKey?
+    private var hotKeys: AppHotKeys?
     private var recordingTask: Task<Void, Never>?
     private var toggleQuitSignal: DispatchSourceSignal?
     private var stopSignal: RecordingStopSignal?
@@ -762,19 +762,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         do {
-            recordHotKey = try AppHotKey(id: 1, keyCode: UInt32(kVK_Space)) { [weak self] in
-                self?.toolbar.toggleRecordingFromShortcut()
-            }
+            hotKeys = try AppHotKeys(
+                record: { [weak self] in
+                    Task { @MainActor in
+                        self?.toolbar.toggleRecordingFromShortcut()
+                    }
+                },
+                close: { [weak self] in
+                    Task { @MainActor in
+                        self?.cancel()
+                    }
+                }
+            )
         } catch {
-            fputs("screen-snipper: could not register Command-Shift-Space shortcut: \(error)\n", stderr)
-        }
-
-        do {
-            closeHotKey = try AppHotKey(id: 2, keyCode: 26) { [weak self] in
-                self?.cancel()
-            }
-        } catch {
-            fputs("screen-snipper: could not register Command-Shift-7 shortcut: \(error)\n", stderr)
+            fputs("screen-snipper: could not register keyboard shortcuts: \(error)\n", stderr)
         }
 
         toolbar.begin(
@@ -793,8 +794,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let keyboardShortcutMonitor {
             NSEvent.removeMonitor(keyboardShortcutMonitor)
         }
-        recordHotKey = nil
-        closeHotKey = nil
+        hotKeys = nil
     }
 
     private static func isLauncherShortcut(_ event: NSEvent) -> Bool {
