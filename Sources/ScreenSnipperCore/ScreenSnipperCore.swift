@@ -12,6 +12,36 @@ public struct Options: Equatable {
     public init() {}
 }
 
+public enum AppShortcut: UInt32 {
+    case record = 1
+    case close = 2
+}
+
+public struct AppShortcutDispatcher {
+    private let record: () -> Void
+    private let close: () -> Void
+
+    public init(record: @escaping () -> Void, close: @escaping () -> Void) {
+        self.record = record
+        self.close = close
+    }
+
+    @discardableResult
+    public func dispatch(id: UInt32) -> Bool {
+        guard let shortcut = AppShortcut(rawValue: id) else {
+            return false
+        }
+
+        switch shortcut {
+        case .record:
+            record()
+        case .close:
+            close()
+        }
+        return true
+    }
+}
+
 public enum ScreenSnipperError: Error, CustomStringConvertible, Equatable {
     case invalidOption(String)
     case screenRecordingPermissionDenied

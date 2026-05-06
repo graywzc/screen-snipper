@@ -126,6 +126,32 @@ let tests: [(String, () throws -> Void)] = [
         )
 
         try expect(url.path.hasSuffix(".mp4"), "Custom extension should be used")
+    }),
+    ("shortcut dispatcher routes record and close independently", {
+        var recordCount = 0
+        var closeCount = 0
+        let dispatcher = AppShortcutDispatcher(
+            record: { recordCount += 1 },
+            close: { closeCount += 1 }
+        )
+
+        try expect(dispatcher.dispatch(id: AppShortcut.record.rawValue), "Record shortcut should dispatch")
+        try expect(recordCount == 1, "Record action should run once")
+        try expect(closeCount == 0, "Close action should not run for record shortcut")
+
+        try expect(dispatcher.dispatch(id: AppShortcut.close.rawValue), "Close shortcut should dispatch")
+        try expect(recordCount == 1, "Record action should not run for close shortcut")
+        try expect(closeCount == 1, "Close action should run once")
+    }),
+    ("shortcut dispatcher ignores unknown shortcuts", {
+        var actionCount = 0
+        let dispatcher = AppShortcutDispatcher(
+            record: { actionCount += 1 },
+            close: { actionCount += 1 }
+        )
+
+        try expect(dispatcher.dispatch(id: 999) == false, "Unknown shortcut should not dispatch")
+        try expect(actionCount == 0, "Unknown shortcut should not run any action")
     })
 ]
 
