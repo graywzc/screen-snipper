@@ -100,8 +100,8 @@ jobs:
           title="Update screen-snipper to ${VERSION}"
           body="Updates screen-snipper to the v${VERSION} prebuilt universal macOS release asset.
 
-Release: https://github.com/graywzc/screen-snipper/releases/tag/v${VERSION}
-SHA256: ${SHA256}"
+          Release: https://github.com/graywzc/screen-snipper/releases/tag/v${VERSION}
+          SHA256: ${SHA256}"
 
           if gh pr view "${branch}" --repo graywzc/homebrew-tap >/dev/null 2>&1; then
             gh pr edit "${branch}" --repo graywzc/homebrew-tap --title "${title}" --body "${body}"
