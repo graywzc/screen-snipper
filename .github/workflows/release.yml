@@ -73,8 +73,11 @@ jobs:
           formula="Formula/screen-snipper.rb"
           url="https://github.com/graywzc/screen-snipper/releases/download/v${VERSION}/screen-snipper-${VERSION}-macos.tar.gz"
           perl -0pi -e "s|url \".*screen-snipper.*\"|url \"${url}\"|; s|sha256 \"[a-f0-9]+\"|sha256 \"${SHA256}\"|" "${formula}"
-          brew style "${formula}"
-          brew audit "${formula}"
+          tap_dir="$(brew --repository)/Library/Taps/graywzc/homebrew-tap"
+          mkdir -p "$(dirname "${tap_dir}")"
+          ln -sfn "${PWD}" "${tap_dir}"
+          brew style graywzc/tap/screen-snipper
+          brew audit graywzc/tap/screen-snipper
 
       - name: Open Homebrew formula PR
         working-directory: homebrew-tap
