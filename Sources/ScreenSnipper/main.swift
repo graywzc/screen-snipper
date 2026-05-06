@@ -150,7 +150,7 @@ final class AppHotKey: @unchecked Sendable {
         let installStatus = InstallEventHandler(
             GetApplicationEventTarget(),
             { _, event, userData in
-                guard let event, let userData else { return noErr }
+                guard let event, let userData else { return OSStatus(eventNotHandledErr) }
 
                 var hotKeyID = EventHotKeyID()
                 let status = GetEventParameter(
@@ -164,7 +164,7 @@ final class AppHotKey: @unchecked Sendable {
                 )
                 let hotKey = Unmanaged<AppHotKey>.fromOpaque(userData).takeUnretainedValue()
                 guard status == noErr, hotKeyID.id == hotKey.id else {
-                    return noErr
+                    return OSStatus(eventNotHandledErr)
                 }
 
                 DispatchQueue.main.async {
