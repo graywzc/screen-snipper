@@ -12,9 +12,29 @@ public struct Options: Equatable {
     public init() {}
 }
 
-public enum AppShortcut: UInt32 {
+public enum AppShortcut: UInt32, Sendable {
     case record = 1
     case close = 2
+}
+
+public struct AppShortcutRegistrationPlan {
+    public typealias Register = (AppShortcut) throws -> Void
+    public typealias ReportOptionalFailure = (AppShortcut, Error) -> Void
+
+    public init() {}
+
+    public func registerAll(
+        register: Register,
+        reportOptionalFailure: ReportOptionalFailure? = nil
+    ) throws {
+        try register(.record)
+
+        do {
+            try register(.close)
+        } catch {
+            reportOptionalFailure?(.close, error)
+        }
+    }
 }
 
 public struct AppShortcutDispatcher {
