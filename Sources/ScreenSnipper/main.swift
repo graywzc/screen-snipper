@@ -176,8 +176,14 @@ final class AppHotKeys: @unchecked Sendable {
             throw HotKeyError.installHandlerFailed(installStatus)
         }
         self.handlerRef = handlerRef
-        try register(id: .record, keyCode: UInt32(kVK_Space))
-        try register(id: .close, keyCode: 26)
+        try AppShortcutRegistrationPlan().registerAll(
+            register: { shortcut in
+                try register(id: shortcut, keyCode: keyCode(for: shortcut))
+            },
+            reportOptionalFailure: { shortcut, error in
+                fputs("screen-snipper: \(shortcut.name) keyboard shortcut unavailable: \(error)\n", stderr)
+            }
+        )
     }
 
     private func register(id: AppShortcut, keyCode: UInt32) throws {
@@ -199,9 +205,27 @@ final class AppHotKeys: @unchecked Sendable {
         }
     }
 
+    private func keyCode(for shortcut: AppShortcut) -> UInt32 {
+        switch shortcut {
+        case .record:
+            UInt32(kVK_Space)
+        case .close:
+            26
+        }
+    }
+
     private func fourCharCode(_ string: String) -> OSType {
         string.utf8.reduce(0) { result, character in
             (result << 8) + OSType(character)
+        }
+    }
+}
+
+private extension AppShortcut {
+    var name: String {
+        switch self {
+        case .record: "record"
+        case .close: "close"
         }
     }
 }

@@ -7,6 +7,10 @@ struct TestFailure: Error, CustomStringConvertible {
     var description: String { message }
 }
 
+enum TestError: Error, Equatable {
+    case registrationFailed(AppShortcut)
+}
+
 func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {
     if !condition() {
         throw TestFailure(message: message)
@@ -152,6 +156,42 @@ let tests: [(String, () throws -> Void)] = [
 
         try expect(dispatcher.dispatch(id: 999) == false, "Unknown shortcut should not dispatch")
         try expect(actionCount == 0, "Unknown shortcut should not run any action")
+    }),
+    ("shortcut registration ignores close failure", {
+        var registered: [AppShortcut] = []
+        var optionalFailures: [AppShortcut] = []
+
+        try AppShortcutRegistrationPlan().registerAll(
+            register: { shortcut in
+                registered.append(shortcut)
+                if shortcut == .close {
+                    throw TestError.registrationFailed(shortcut)
+                }
+            },
+            reportOptionalFailure: { shortcut, _ in
+                optionalFailures.append(shortcut)
+            }
+        )
+
+        try expect(registered == [.record, .close], "Record and close shortcuts should be attempted")
+        try expect(optionalFailures == [.close], "Close failure should be reported as optional")
+    }),
+    ("shortcut registration requires record", {
+        var registered: [AppShortcut] = []
+
+        do {
+            try AppShortcutRegistrationPlan().registerAll { shortcut in
+                registered.append(shortcut)
+                if shortcut == .record {
+                    throw TestError.registrationFailed(shortcut)
+                }
+            }
+            try expect(false, "Record registration failure should throw")
+        } catch TestError.registrationFailed(let shortcut) {
+            try expect(shortcut == .record, "Record failure should propagate")
+        }
+
+        try expect(registered == [.record], "Close shortcut should not be attempted after record fails")
     })
 ]
 
