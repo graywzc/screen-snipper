@@ -93,8 +93,13 @@ carry their image data, so apps that inline images can take the bytes directly.
 
 Because the paste is a file reference, the file has to exist when you press Cmd+V. With
 `--no-save` (or the toolbar's folder toggle off) the recording is written to
-`/tmp/screen-snipper/` and left there rather than deleted. macOS clears `/tmp` on reboot,
-so paste before then.
+`/tmp/screen-snipper/` and left there rather than deleted.
+
+macOS reaps these on its own: `com.apple.tmp_cleaner` runs daily and deletes anything
+under `/tmp` whose access, modification, and change times are all older than three days.
+Reading a file counts as access, so pasting a clip pushes its expiry back. Treat the
+recordings as good for a few days, not as an archive — turn the folder toggle on for
+anything worth keeping.
 
 ## Permissions
 
