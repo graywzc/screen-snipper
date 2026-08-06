@@ -77,12 +77,24 @@ While the overlay is open:
 - `--max-width <pixels>`: downscale captures wider than this value.
 - `--output <path>`: explicit output path. The toolbar folder setting is used when this is omitted.
 - `--clipboard`: copy the recording to the clipboard after saving.
-- `--no-save`: copy to clipboard without keeping a file.
+- `--no-save`: skip the output folder and keep the recording in `/tmp/screen-snipper` instead.
 - `--debug`: print selection and capture coordinate diagnostics.
 - `--toggle`: start `screen-snipper` if closed, or close the running instance.
 - `--help`: show usage.
 
 The toolbar remembers its selected format, folder, clipboard toggle, FPS, max width, and rectangle position between runs.
+
+### How the clipboard copy works
+
+Copying puts a **file URL** on the clipboard, not the recording's bytes. That is the
+only format macOS apps actually paste video in — Finder, Messages, Mail, and Slack all
+read `public.file-url`, and nothing reads raw `public.mpeg-4` data. GIFs additionally
+carry their image data, so apps that inline images can take the bytes directly.
+
+Because the paste is a file reference, the file has to exist when you press Cmd+V. With
+`--no-save` (or the toolbar's folder toggle off) the recording is written to
+`/tmp/screen-snipper/` and left there rather than deleted. macOS clears `/tmp` on reboot,
+so paste before then.
 
 ## Permissions
 

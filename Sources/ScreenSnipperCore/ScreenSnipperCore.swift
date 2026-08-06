@@ -184,6 +184,21 @@ public func defaultOutputURL(
     return directory.appendingPathComponent(filename)
 }
 
+/// Location for a clipboard-only recording. macOS pastes video by file URL, so the
+/// recording has to outlive the process instead of being deleted after the copy.
+public func clipboardTempURL(
+    date: Date,
+    baseDirectory: URL = URL(fileURLWithPath: "/tmp", isDirectory: true),
+    fileExtension: String = "gif"
+) -> URL {
+    defaultOutputURL(
+        date: date,
+        baseDirectory: baseDirectory,
+        folderName: "screen-snipper",
+        fileExtension: fileExtension
+    )
+}
+
 public func printUsage() {
     print("""
     Usage: screen-snipper [options]
@@ -193,7 +208,7 @@ public func printUsage() {
       --max-width <pixels>  Downscale captures wider than this value.
       --output <path>       Output path. Defaults to ~/Desktop/Screenshot/screen-snipper-YYYYMMDD-HHMMSS.gif.
       --clipboard           Copy the recording to the clipboard after saving.
-      --no-save             Copy to clipboard without keeping a file.
+      --no-save             Copy to clipboard only; the file is kept in /tmp/screen-snipper.
       --debug               Print capture coordinate diagnostics.
       --toggle              Start screen-snipper if closed, or close the running instance.
       --help                Show this help.
