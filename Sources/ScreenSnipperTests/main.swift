@@ -131,6 +131,16 @@ let tests: [(String, () throws -> Void)] = [
 
         try expect(url.path.hasSuffix(".mp4"), "Custom extension should be used")
     }),
+    ("clipboard temp url lives under /tmp/screen-snipper", {
+        let date = Date(timeIntervalSince1970: 1_777_777_777)
+        let url = clipboardTempURL(date: date, fileExtension: "mp4")
+
+        try expect(
+            url.path.hasPrefix("/tmp/screen-snipper/screen-snipper-"),
+            "Clipboard temp file should live in /tmp/screen-snipper"
+        )
+        try expect(url.path.hasSuffix(".mp4"), "Clipboard temp file should use the recording extension")
+    }),
     ("shortcut dispatcher routes record and close independently", {
         var recordCount = 0
         var closeCount = 0

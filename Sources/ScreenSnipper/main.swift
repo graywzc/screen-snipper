@@ -887,14 +887,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let shouldCopy = self.shouldCopyToClipboard(toolbarSelection: toolbarSelection)
                 let shouldSave = self.shouldSaveFile(toolbarSelection: toolbarSelection)
                 if shouldCopy {
-                    try Clipboard.copyRecording(
-                        from: outputURL,
-                        format: toolbarSelection.format,
-                        includeFileURL: shouldSave
-                    )
+                    try Clipboard.copyRecording(from: outputURL, format: toolbarSelection.format)
                 }
 
-                if !shouldSave {
+                // A clipboard-only recording still needs its file on disk: pasting a
+                // movie hands the receiving app a file URL, not the bytes.
+                if !shouldSave, !shouldCopy {
                     try? FileManager.default.removeItem(at: outputURL)
                 }
 
@@ -928,18 +926,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return output
         }
 
-        if !shouldSaveFile(toolbarSelection: toolbarSelection) {
-            return FileManager.default.temporaryDirectory
-                .appendingPathComponent("screen-snipper-\(UUID().uuidString)")
-                .appendingPathExtension(toolbarSelection.format.fileExtension)
+        let outputURL: URL
+        if shouldSaveFile(toolbarSelection: toolbarSelection) {
+            outputURL = defaultOutputURL(
+                date: Date(),
+                baseDirectory: toolbarSelection.folderURL,
+                folderName: nil,
+                fileExtension: toolbarSelection.format.fileExtension
+            )
+        } else {
+            outputURL = clipboardTempURL(
+                date: Date(),
+                fileExtension: toolbarSelection.format.fileExtension
+            )
         }
-
-        let outputURL = defaultOutputURL(
-            date: Date(),
-            baseDirectory: toolbarSelection.folderURL,
-            folderName: nil,
-            fileExtension: toolbarSelection.format.fileExtension
-        )
         let outputDirectory = outputURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
         return outputURL
@@ -956,11 +956,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func successMessage(outputURL: URL, saveFile: Bool, copyToClipboard: Bool) -> String {
         switch (saveFile, copyToClipboard) {
         case (true, true):
-            "Saved \(outputURL.path) and copied GIF to clipboard"
+            "Saved \(outputURL.path) and copied it to the clipboard"
         case (true, false):
             "Saved \(outputURL.path)"
         case (false, true):
-            "Copied GIF to clipboard"
+            "Copied \(outputURL.path) to the clipboard"
         case (false, false):
             "Done"
         }
@@ -1332,19 +1332,22 @@ enum Permissions {
 }
 
 enum Clipboard {
-    static func copyRecording(from url: URL, format: RecordingFormat, includeFileURL: Bool) throws {
-        let data = try Data(contentsOf: url)
+    /// Puts a recording on the pasteboard.
+    ///
+    /// The file URL is what makes Cmd+V work: no app pastes raw `public.mpeg-4`
+    /// bytes, they all read `public.file-url` (or a file promise) instead. GIF data
+    /// is offered too so apps that inline images can take the bytes directly; MP4
+    /// data is deliberately left off since nothing reads it and it can be large.
+    static func copyRecording(from url: URL, format: RecordingFormat) throws {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
 
         let item = NSPasteboardItem()
-        let contentType: UTType = format == .gif ? .gif : .mpeg4Movie
-        item.setData(data, forType: NSPasteboard.PasteboardType(contentType.identifier))
-
-        if includeFileURL {
-            item.setString(url.absoluteString, forType: .fileURL)
-            item.setString(url.absoluteString, forType: .URL)
+        if format == .gif {
+            let data = try Data(contentsOf: url)
+            item.setData(data, forType: NSPasteboard.PasteboardType(UTType.gif.identifier))
         }
+        item.setString(url.absoluteString, forType: .fileURL)
 
         pasteboard.writeObjects([item])
     }
