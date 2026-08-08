@@ -36,7 +36,17 @@ git push origin v0.1.4
 ```
 
 After the workflow finishes, review and merge the generated Homebrew tap PR.
-The release workflow requires the `HOMEBREW_TAP_TOKEN` repository secret.
+
+The workflow requires the `HOMEBREW_TAP_TOKEN` repository secret: a fine-grained
+PAT scoped to `graywzc/homebrew-tap` with Contents and Pull requests write access.
+The tap lives in a different repository, so the automatic `GITHUB_TOKEN` — which is
+scoped to this repository alone — cannot reach it. The first step verifies the token
+against the API and fails the run immediately if it has expired, before anything is
+built or published.
+
+The run is safe to re-run. Publishing is skipped when the release already exists, and
+the formula checksum is taken from the published asset rather than the freshly built
+one, so a re-run cannot point the formula at a hash users never receive.
 
 ## Use
 
