@@ -777,6 +777,16 @@ final class SelectionController {
         )
     }
 
+    /// Expands the selection to cover the entire display it currently occupies.
+    func fillCurrentScreen() {
+        guard let selectionRect,
+              let screen = NSScreen.screen(containingLargestAreaOf: selectionRect)
+        else {
+            return
+        }
+        self.selectionRect = screen.frame.integral
+    }
+
     /// Drops updates that would strand the selection where no screen shows enough
     /// of it to grab: gaps in the display arrangement, or past the far edge of a
     /// smaller monitor. Moves compute the rect from the drag's absolute delta, so
@@ -891,6 +901,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             cancel: { [weak self] in
                 self?.cancel()
+            },
+            moveScreen: { [weak self] in
+                self?.selector.moveToNextScreen()
+            },
+            fillScreen: { [weak self] in
+                self?.selector.fillCurrentScreen()
             }
         )
     }

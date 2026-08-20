@@ -203,6 +203,8 @@ final class CaptureToolbarController {
     private let state: CaptureToolbarState
     private var recordToggle: ((CaptureToolbarSelection) -> Void)?
     private var cancelAction: (() -> Void)?
+    private var moveScreenAction: (() -> Void)?
+    private var fillScreenAction: (() -> Void)?
 
     init(options: Options) {
         state = CaptureToolbarState(options: options)
@@ -210,10 +212,14 @@ final class CaptureToolbarController {
 
     func begin(
         recordToggle: @escaping (CaptureToolbarSelection) -> Void,
-        cancel: @escaping () -> Void
+        cancel: @escaping () -> Void,
+        moveScreen: @escaping () -> Void,
+        fillScreen: @escaping () -> Void
     ) {
         self.recordToggle = recordToggle
         cancelAction = cancel
+        moveScreenAction = moveScreen
+        fillScreenAction = fillScreen
 
         if panel == nil {
             panel = makePanel()
@@ -248,7 +254,7 @@ final class CaptureToolbarController {
 
     private func makePanel() -> NSPanel {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 458, height: 74),
+            contentRect: NSRect(x: 0, y: 0, width: 566, height: 74),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -269,7 +275,9 @@ final class CaptureToolbarController {
                 toggleRecording: { [weak self] in
                     guard let self else { return }
                     self.recordToggle?(self.state.selection)
-                }
+                },
+                moveScreen: { [weak self] in self?.moveScreenAction?() },
+                fillScreen: { [weak self] in self?.fillScreenAction?() }
             )
         )
         return panel
@@ -290,8 +298,11 @@ struct CaptureToolbarView: View {
     @ObservedObject var state: CaptureToolbarState
     let cancel: () -> Void
     let toggleRecording: () -> Void
+    let moveScreen: () -> Void
+    let fillScreen: () -> Void
 
     @State private var showsRecordShortcut = false
+    @State private var showsMoveScreenShortcut = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -305,6 +316,31 @@ struct CaptureToolbarView: View {
             .frame(width: 116)
 
             optionsMenu
+
+            Button(action: moveScreen) {
+                Group {
+                    if showsMoveScreenShortcut {
+                        Text("⌘ ⇧ M")
+                    } else {
+                        Image(systemName: "display.2")
+                    }
+                }
+                .frame(width: 60, height: 24)
+            }
+            .buttonStyle(.plain)
+            .help("Move to the next monitor")
+            .onHover { hovering in
+                withAnimation(.easeOut(duration: 0.12)) {
+                    showsMoveScreenShortcut = hovering
+                }
+            }
+
+            Button(action: fillScreen) {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+            .help("Fill the current monitor")
 
             Button(action: toggleRecording) {
                 Text(recordButtonTitle)
@@ -338,7 +374,7 @@ struct CaptureToolbarView: View {
                 .stroke(.white.opacity(0.18), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.24), radius: 18, y: 8)
-        .frame(width: 458, height: 74)
+        .frame(width: 566, height: 74)
         .help("Drag to move")
     }
 

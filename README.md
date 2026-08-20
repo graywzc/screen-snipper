@@ -78,7 +78,7 @@ While the overlay is open:
 - `Command-Shift-Space`: start or stop recording.
 - `Command-Shift-M`: jump the capture area to the next monitor.
 - `Command-Shift-7`: close the app when it is focused, matching the suggested launcher shortcut.
-- Floating toolbar: choose GIF or Video, output options, FPS, and max width.
+- Floating toolbar: choose GIF or Video, output options, FPS, and max width; jump the capture area to the next monitor or expand it to fill the current one.
 - Rectangle frame: move the selected region.
 - Blue handles: resize the selected region.
 
