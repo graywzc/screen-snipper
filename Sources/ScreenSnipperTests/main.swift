@@ -207,12 +207,43 @@ let tests: [(String, () throws -> Void)] = [
             "No screens means nothing is reachable"
         )
     }),
-    ("shortcut dispatcher routes record and close independently", {
+    ("moved selection keeps size and relative position on an equal screen", {
+        let source = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let target = CGRect(x: 1920, y: 0, width: 1920, height: 1080)
+        let rect = CGRect(x: 100, y: 200, width: 400, height: 300)
+
+        let moved = SelectionPlacement.moved(rect, from: source, to: target)
+
+        try expect(moved == CGRect(x: 2020, y: 200, width: 400, height: 300), "Moved rect should keep its relative spot, got \(moved)")
+    }),
+    ("moved selection shrinks to fit a smaller screen", {
+        let source = CGRect(x: 0, y: 0, width: 3840, height: 2160)
+        let target = CGRect(x: 3840, y: 0, width: 1440, height: 900)
+        let rect = CGRect(x: 100, y: 100, width: 2000, height: 1200)
+
+        let moved = SelectionPlacement.moved(rect, from: source, to: target)
+
+        try expect(moved.width == 1440 && moved.height == 900, "Oversized rect should shrink to the target, got \(moved)")
+        try expect(target.contains(moved), "Shrunk rect should lie inside the target, got \(moved)")
+    }),
+    ("moved selection clamps inside the target near an edge", {
+        let source = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let target = CGRect(x: 1920, y: 0, width: 1440, height: 900)
+        let rect = CGRect(x: 1520, y: 780, width: 400, height: 300)
+
+        let moved = SelectionPlacement.moved(rect, from: source, to: target)
+
+        try expect(target.contains(moved), "Edge-hugging rect should be clamped inside the target, got \(moved)")
+        try expect(moved.width == 400 && moved.height == 300, "Clamping should not change a size that fits, got \(moved)")
+    }),
+    ("shortcut dispatcher routes shortcuts independently", {
         var recordCount = 0
         var closeCount = 0
+        var moveScreenCount = 0
         let dispatcher = AppShortcutDispatcher(
             record: { recordCount += 1 },
-            close: { closeCount += 1 }
+            close: { closeCount += 1 },
+            moveScreen: { moveScreenCount += 1 }
         )
 
         try expect(dispatcher.dispatch(id: AppShortcut.record.rawValue), "Record shortcut should dispatch")
@@ -222,25 +253,30 @@ let tests: [(String, () throws -> Void)] = [
         try expect(dispatcher.dispatch(id: AppShortcut.close.rawValue), "Close shortcut should dispatch")
         try expect(recordCount == 1, "Record action should not run for close shortcut")
         try expect(closeCount == 1, "Close action should run once")
+
+        try expect(dispatcher.dispatch(id: AppShortcut.moveScreen.rawValue), "Move-screen shortcut should dispatch")
+        try expect(moveScreenCount == 1, "Move-screen action should run once")
+        try expect(recordCount == 1 && closeCount == 1, "Other actions should not run for move-screen shortcut")
     }),
     ("shortcut dispatcher ignores unknown shortcuts", {
         var actionCount = 0
         let dispatcher = AppShortcutDispatcher(
             record: { actionCount += 1 },
-            close: { actionCount += 1 }
+            close: { actionCount += 1 },
+            moveScreen: { actionCount += 1 }
         )
 
         try expect(dispatcher.dispatch(id: 999) == false, "Unknown shortcut should not dispatch")
         try expect(actionCount == 0, "Unknown shortcut should not run any action")
     }),
-    ("shortcut registration ignores close failure", {
+    ("shortcut registration ignores optional failures", {
         var registered: [AppShortcut] = []
         var optionalFailures: [AppShortcut] = []
 
         try AppShortcutRegistrationPlan().registerAll(
             register: { shortcut in
                 registered.append(shortcut)
-                if shortcut == .close {
+                if shortcut != .record {
                     throw TestError.registrationFailed(shortcut)
                 }
             },
@@ -249,8 +285,8 @@ let tests: [(String, () throws -> Void)] = [
             }
         )
 
-        try expect(registered == [.record, .close], "Record and close shortcuts should be attempted")
-        try expect(optionalFailures == [.close], "Close failure should be reported as optional")
+        try expect(registered == [.record, .close, .moveScreen], "All shortcuts should be attempted")
+        try expect(optionalFailures == [.close, .moveScreen], "Optional failures should be reported")
     }),
     ("shortcut registration requires record", {
         var registered: [AppShortcut] = []
@@ -267,7 +303,7 @@ let tests: [(String, () throws -> Void)] = [
             try expect(shortcut == .record, "Record failure should propagate")
         }
 
-        try expect(registered == [.record], "Close shortcut should not be attempted after record fails")
+        try expect(registered == [.record], "Optional shortcuts should not be attempted after record fails")
     })
 ]
 

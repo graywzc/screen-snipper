@@ -16,6 +16,7 @@ public struct Options: Equatable {
 public enum AppShortcut: UInt32, Sendable {
     case record = 1
     case close = 2
+    case moveScreen = 3
 }
 
 public struct AppShortcutRegistrationPlan {
@@ -30,10 +31,12 @@ public struct AppShortcutRegistrationPlan {
     ) throws {
         try register(.record)
 
-        do {
-            try register(.close)
-        } catch {
-            reportOptionalFailure?(.close, error)
+        for shortcut in [AppShortcut.close, .moveScreen] {
+            do {
+                try register(shortcut)
+            } catch {
+                reportOptionalFailure?(shortcut, error)
+            }
         }
     }
 }
@@ -41,10 +44,16 @@ public struct AppShortcutRegistrationPlan {
 public struct AppShortcutDispatcher {
     private let record: () -> Void
     private let close: () -> Void
+    private let moveScreen: () -> Void
 
-    public init(record: @escaping () -> Void, close: @escaping () -> Void) {
+    public init(
+        record: @escaping () -> Void,
+        close: @escaping () -> Void,
+        moveScreen: @escaping () -> Void
+    ) {
         self.record = record
         self.close = close
+        self.moveScreen = moveScreen
     }
 
     @discardableResult
@@ -58,6 +67,8 @@ public struct AppShortcutDispatcher {
             record()
         case .close:
             close()
+        case .moveScreen:
+            moveScreen()
         }
         return true
     }
@@ -75,6 +86,32 @@ public enum SelectionPlacement {
             let visible = screen.intersection(rect)
             return visible.width >= minimumVisibleSize && visible.height >= minimumVisibleSize
         }
+    }
+
+    /// Repositions a selection onto a target screen, keeping its size where it
+    /// fits and its center at the same relative position it had on the source
+    /// screen. The result always lies fully inside the target.
+    public static func moved(_ rect: CGRect, from source: CGRect, to target: CGRect) -> CGRect {
+        let width = min(rect.width, target.width)
+        let height = min(rect.height, target.height)
+
+        let relativeX = source.width > 0 ? (rect.midX - source.minX) / source.width : 0.5
+        let relativeY = source.height > 0 ? (rect.midY - source.minY) / source.height : 0.5
+
+        var origin = CGPoint(
+            x: target.minX + relativeX * target.width - width / 2,
+            y: target.minY + relativeY * target.height - height / 2
+        )
+        origin.x = min(max(origin.x, target.minX), target.maxX - width)
+        origin.y = min(max(origin.y, target.minY), target.maxY - height)
+
+        // Rounding down keeps the rect inside the target after clamping.
+        return CGRect(
+            x: origin.x.rounded(.down),
+            y: origin.y.rounded(.down),
+            width: width.rounded(.down),
+            height: height.rounded(.down)
+        )
     }
 }
 

@@ -122,10 +122,15 @@ final class AppHotKeys: @unchecked Sendable {
     private var handlerRef: EventHandlerRef?
     private let dispatcher: AppShortcutDispatcher
 
-    init(record: @escaping @Sendable () -> Void, close: @escaping @Sendable () -> Void) throws {
+    init(
+        record: @escaping @Sendable () -> Void,
+        close: @escaping @Sendable () -> Void,
+        moveScreen: @escaping @Sendable () -> Void
+    ) throws {
         dispatcher = AppShortcutDispatcher(
             record: { OperationQueue.main.addOperation(record) },
-            close: { OperationQueue.main.addOperation(close) }
+            close: { OperationQueue.main.addOperation(close) },
+            moveScreen: { OperationQueue.main.addOperation(moveScreen) }
         )
         try install()
     }
@@ -211,6 +216,8 @@ final class AppHotKeys: @unchecked Sendable {
             UInt32(kVK_Space)
         case .close:
             26
+        case .moveScreen:
+            UInt32(kVK_ANSI_M)
         }
     }
 
@@ -226,6 +233,7 @@ private extension AppShortcut {
         switch self {
         case .record: "record"
         case .close: "close"
+        case .moveScreen: "move screen"
         }
     }
 }
@@ -743,6 +751,32 @@ final class SelectionController {
         return edges
     }
 
+    /// Jumps the selection to the next display, cycling left to right. The rect
+    /// keeps its size where it fits and lands at the same relative position
+    /// within the target's visible frame, clear of the menu bar and Dock.
+    func moveToNextScreen() {
+        guard let selectionRect, NSScreen.screens.count > 1 else { return }
+
+        let screens = NSScreen.screens.sorted { first, second in
+            if first.frame.minX != second.frame.minX {
+                return first.frame.minX < second.frame.minX
+            }
+            return first.frame.minY < second.frame.minY
+        }
+        guard let current = NSScreen.screen(containingLargestAreaOf: selectionRect),
+              let index = screens.firstIndex(of: current)
+        else {
+            return
+        }
+
+        let target = screens[(index + 1) % screens.count]
+        self.selectionRect = SelectionPlacement.moved(
+            selectionRect,
+            from: current.visibleFrame,
+            to: target.visibleFrame
+        )
+    }
+
     /// Drops updates that would strand the selection where no screen shows enough
     /// of it to grab: gaps in the display arrangement, or past the far edge of a
     /// smaller monitor. Moves compute the rect from the drag's absolute delta, so
@@ -821,6 +855,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return nil
             }
 
+            if Self.isMoveScreenShortcut(event) {
+                self?.selector.moveToNextScreen()
+                return nil
+            }
+
             return event
         }
 
@@ -834,6 +873,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 close: { [weak self] in
                     Task { @MainActor in
                         self?.cancel()
+                    }
+                },
+                moveScreen: { [weak self] in
+                    Task { @MainActor in
+                        self?.selector.moveToNextScreen()
                     }
                 }
             )
@@ -868,6 +912,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static func isRecordShortcut(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         return flags == [.command, .shift] && event.keyCode == UInt16(kVK_Space)
+    }
+
+    private static func isMoveScreenShortcut(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return flags == [.command, .shift] && event.keyCode == UInt16(kVK_ANSI_M)
     }
 
     private func toggleRecording(toolbarSelection: CaptureToolbarSelection) {
