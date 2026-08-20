@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 public struct Options: Equatable {
@@ -59,6 +60,21 @@ public struct AppShortcutDispatcher {
             close()
         }
         return true
+    }
+}
+
+public enum SelectionPlacement {
+    /// Matches the minimum selection size; anything smaller is too little to see or grab.
+    public static let minimumVisibleSize: CGFloat = 24
+
+    /// Whether some screen shows a large enough piece of the rect for the user
+    /// to see it and grab its border. Multi-monitor arrangements leave gaps in
+    /// the global coordinate space where a rect exists but no display shows it.
+    public static func isReachable(_ rect: CGRect, onScreens screens: [CGRect]) -> Bool {
+        screens.contains { screen in
+            let visible = screen.intersection(rect)
+            return visible.width >= minimumVisibleSize && visible.height >= minimumVisibleSize
+        }
     }
 }
 

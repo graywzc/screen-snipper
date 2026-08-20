@@ -31,7 +31,7 @@ enum SelectionPreferences {
 
         guard rect.width >= 24,
               rect.height >= 24,
-              NSScreen.screens.contains(where: { !$0.frame.intersection(rect).isEmpty })
+              SelectionPlacement.isReachable(rect, onScreens: NSScreen.screens.map(\.frame))
         else {
             return nil
         }
@@ -581,6 +581,7 @@ private final class SelectionInteractionView: NSView {
 final class SelectionController {
     private var windows: [NSWindow] = []
     private var interactionWindows: [NSWindow] = []
+    private var screenObserver: NSObjectProtocol?
     private(set) var selectionRect: CGRect? = SelectionPreferences.load() {
         didSet {
             windows.compactMap { $0.contentView as? SelectionView }.forEach { view in
@@ -589,6 +590,18 @@ final class SelectionController {
             syncInteractionWindows()
             if let selectionRect {
                 SelectionPreferences.save(selectionRect)
+            }
+        }
+    }
+
+    init() {
+        screenObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.screensDidChange()
             }
         }
     }
@@ -616,7 +629,7 @@ final class SelectionController {
             let view = SelectionView(frame: NSRect(origin: .zero, size: screen.frame.size))
             view.selectionRect = selectionRect
             view.onSelectionChange = { [weak self] rect in
-                self?.selectionRect = rect
+                self?.applySelection(rect)
             }
 
             let window = NSWindow(
@@ -664,7 +677,7 @@ final class SelectionController {
             let view = SelectionInteractionView(frame: NSRect(origin: .zero, size: item.rect.size))
             view.operation = item.operation
             view.currentSelection = { [weak self] in self?.selectionRect }
-            view.updateSelection = { [weak self] rect in self?.selectionRect = rect }
+            view.updateSelection = { [weak self] rect in self?.applySelection(rect) }
 
             let window = NSWindow(
                 contentRect: item.rect,
@@ -728,6 +741,32 @@ final class SelectionController {
         if point.y == rect.maxY { edges.insert(.maxY) }
 
         return edges
+    }
+
+    /// Drops updates that would strand the selection where no screen shows enough
+    /// of it to grab: gaps in the display arrangement, or past the far edge of a
+    /// smaller monitor. Moves compute the rect from the drag's absolute delta, so
+    /// the selection catches up as soon as the cursor carries it back over a screen.
+    private func applySelection(_ rect: CGRect) {
+        guard SelectionPlacement.isReachable(rect, onScreens: NSScreen.screens.map(\.frame)) else {
+            return
+        }
+        selectionRect = rect
+    }
+
+    private func screensDidChange() {
+        let wasVisible = windows.contains { $0.isVisible }
+        windows.forEach { $0.orderOut(nil) }
+        windows.removeAll()
+
+        if let selectionRect,
+           !SelectionPlacement.isReachable(selectionRect, onScreens: NSScreen.screens.map(\.frame)) {
+            self.selectionRect = defaultSelectionRect()
+        }
+
+        if wasVisible {
+            show()
+        }
     }
 
     private func defaultSelectionRect() -> CGRect {

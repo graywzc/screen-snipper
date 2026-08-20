@@ -141,6 +141,72 @@ let tests: [(String, () throws -> Void)] = [
         )
         try expect(url.path.hasSuffix(".mp4"), "Clipboard temp file should use the recording extension")
     }),
+    ("selection is reachable when fully on a screen", {
+        let screens = [CGRect(x: 0, y: 0, width: 1920, height: 1080)]
+        let rect = CGRect(x: 100, y: 100, width: 400, height: 300)
+
+        try expect(
+            SelectionPlacement.isReachable(rect, onScreens: screens),
+            "A selection inside a screen should be reachable"
+        )
+    }),
+    ("selection is reachable while spanning two screens", {
+        let screens = [
+            CGRect(x: 0, y: 0, width: 1920, height: 1080),
+            CGRect(x: 1920, y: 0, width: 2560, height: 1440)
+        ]
+        let rect = CGRect(x: 1800, y: 100, width: 400, height: 300)
+
+        try expect(
+            SelectionPlacement.isReachable(rect, onScreens: screens),
+            "A selection straddling adjacent screens should be reachable"
+        )
+    }),
+    ("selection is unreachable in a gap between offset screens", {
+        // A tall screen beside a shorter one leaves a region above the short
+        // screen that belongs to no display.
+        let screens = [
+            CGRect(x: 0, y: 0, width: 1920, height: 2160),
+            CGRect(x: 1920, y: 0, width: 1920, height: 1080)
+        ]
+        let rect = CGRect(x: 2000, y: 1200, width: 400, height: 300)
+
+        try expect(
+            !SelectionPlacement.isReachable(rect, onScreens: screens),
+            "A selection in the dead zone should be unreachable"
+        )
+    }),
+    ("selection is unreachable when only a sliver is visible", {
+        let screens = [CGRect(x: 0, y: 0, width: 1920, height: 1080)]
+        let rect = CGRect(x: 1910, y: 100, width: 400, height: 300)
+
+        try expect(
+            !SelectionPlacement.isReachable(rect, onScreens: screens),
+            "A selection showing less than the minimum grabbable size should be unreachable"
+        )
+    }),
+    ("selection sliver across two screens does not add up", {
+        // 20 points visible on each side of a screen boundary is still less
+        // than the minimum on either screen alone.
+        let screens = [
+            CGRect(x: 0, y: 0, width: 1920, height: 1080),
+            CGRect(x: 1920, y: 1080, width: 1920, height: 1080)
+        ]
+        let rect = CGRect(x: 1900, y: 1060, width: 40, height: 40)
+
+        try expect(
+            !SelectionPlacement.isReachable(rect, onScreens: screens),
+            "Corner slivers on separate screens should not count as reachable"
+        )
+    }),
+    ("selection is unreachable with no screens", {
+        let rect = CGRect(x: 0, y: 0, width: 400, height: 300)
+
+        try expect(
+            !SelectionPlacement.isReachable(rect, onScreens: []),
+            "No screens means nothing is reachable"
+        )
+    }),
     ("shortcut dispatcher routes record and close independently", {
         var recordCount = 0
         var closeCount = 0
