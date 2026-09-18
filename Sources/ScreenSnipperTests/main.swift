@@ -42,6 +42,7 @@ let tests: [(String, () throws -> Void)] = [
         try expect(options.output == nil, "Default output should be nil")
         try expect(options.copyToClipboard == false, "Default clipboard should be false")
         try expect(options.saveFile == true, "Default saveFile should be true")
+        try expect(options.audio == false, "Default audio should be false")
         try expect(options.debug == false, "Default debug should be false")
         try expect(options.toggle == false, "Default toggle should be false")
     }),
@@ -64,6 +65,11 @@ let tests: [(String, () throws -> Void)] = [
 
         try expect(options.saveFile == false, "no-save should disable file preservation")
         try expect(options.copyToClipboard == true, "no-save should imply clipboard")
+    }),
+    ("parse audio", {
+        let options = try parseArguments(["screen-snipper", "--audio"])
+
+        try expect(options.audio == true, "Audio should parse")
     }),
     ("parse toggle", {
         let options = try parseArguments(["screen-snipper", "--toggle"])
