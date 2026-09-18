@@ -6,6 +6,7 @@ import Darwin
 import Foundation
 import ScreenSnipperCore
 import ImageIO
+import ScreenCaptureKit
 import UniformTypeIdentifiers
 
 enum SelectionPreferences {
@@ -983,6 +984,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         region: region,
                         frameDuration: delay,
                         maxWidth: toolbarSelection.maxWidth,
+                        recordAudio: self.options.audio || toolbarSelection.recordAudio,
                         outputURL: outputURL,
                         stopSignal: stopSignal
                     )
@@ -1246,11 +1248,42 @@ enum VideoRecorder {
         region: CaptureRegion,
         frameDuration: TimeInterval,
         maxWidth: Int?,
+        recordAudio: Bool,
         outputURL: URL,
         stopSignal: RecordingStopSignal
     ) async throws {
         try? FileManager.default.removeItem(at: outputURL)
 
+        // Started before the first frame so no audio is missing from the start of
+        // the recording; buffers are held until the writer session begins.
+        let audioCapture = recordAudio ? try await SystemAudioCapture.start(displayID: region.displayID) : nil
+
+        do {
+            try await write(
+                region: region,
+                frameDuration: frameDuration,
+                maxWidth: maxWidth,
+                audioCapture: audioCapture,
+                outputURL: outputURL,
+                stopSignal: stopSignal
+            )
+        } catch {
+            await audioCapture?.stop()
+            throw error
+        }
+    }
+
+    private static func write(
+        region: CaptureRegion,
+        frameDuration: TimeInterval,
+        maxWidth: Int?,
+        audioCapture: SystemAudioCapture?,
+        outputURL: URL,
+        stopSignal: RecordingStopSignal
+    ) async throws {
+        // Frames are stamped with the host clock, the same clock system audio
+        // buffers carry, so the tracks stay in sync even when a capture runs slow.
+        let startTime = hostTime()
         guard let firstCapture = CGDisplayCreateImage(region.displayID, rect: region.displayRect) else {
             throw ScreenSnipperError.captureFailed
         }
@@ -1288,29 +1321,41 @@ enum VideoRecorder {
         }
         writer.add(input)
 
+        var audioInput: AVAssetWriterInput?
+        if audioCapture != nil {
+            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: SystemAudioCapture.outputSettings)
+            input.expectsMediaDataInRealTime = true
+            guard writer.canAdd(input) else {
+                throw ScreenSnipperError.videoDestinationFailed(outputURL)
+            }
+            writer.add(input)
+            audioInput = input
+        }
+
         guard writer.startWriting() else {
             throw ScreenSnipperError.videoDestinationFailed(outputURL)
         }
-        writer.startSession(atSourceTime: .zero)
+        writer.startSession(atSourceTime: startTime)
 
-        var frameIndex: Int64 = 0
-        try append(firstImage, outputSize: outputSize, frameIndex: frameIndex, frameDuration: frameDuration, adaptor: adaptor, input: input, outputURL: outputURL)
-        frameIndex += 1
+        try append(firstImage, outputSize: outputSize, frameTime: startTime, adaptor: adaptor, input: input, outputURL: outputURL)
+        if let audioCapture, let audioInput {
+            audioCapture.beginWriting(to: audioInput, from: startTime)
+        }
 
         while true {
-            if await stopSignal.isStopped(), frameIndex > 0 {
+            if await stopSignal.isStopped() {
                 break
             }
 
             let targetTime = Date().addingTimeInterval(frameDuration)
 
+            let frameTime = hostTime()
             guard let capturedImage = CGDisplayCreateImage(region.displayID, rect: region.displayRect) else {
                 continue
             }
 
             let image = resize(capturedImage, maxWidth: maxWidth) ?? capturedImage
-            try append(image, outputSize: outputSize, frameIndex: frameIndex, frameDuration: frameDuration, adaptor: adaptor, input: input, outputURL: outputURL)
-            frameIndex += 1
+            try append(image, outputSize: outputSize, frameTime: frameTime, adaptor: adaptor, input: input, outputURL: outputURL)
 
             let remaining = targetTime.timeIntervalSinceNow
             if remaining > 0 {
@@ -1318,7 +1363,12 @@ enum VideoRecorder {
             }
         }
 
+        // Ending the session at the stop time keeps the last frame on screen until
+        // then and trims any audio that arrived after it.
+        let endTime = hostTime()
+        await audioCapture?.stop()
         input.markAsFinished()
+        writer.endSession(atSourceTime: endTime)
         await writer.finishWriting()
 
         if writer.status != .completed {
@@ -1326,11 +1376,14 @@ enum VideoRecorder {
         }
     }
 
+    private static func hostTime() -> CMTime {
+        CMClockGetTime(CMClockGetHostTimeClock())
+    }
+
     private static func append(
         _ image: CGImage,
         outputSize: (width: Int, height: Int),
-        frameIndex: Int64,
-        frameDuration: TimeInterval,
+        frameTime: CMTime,
         adaptor: AVAssetWriterInputPixelBufferAdaptor,
         input: AVAssetWriterInput,
         outputURL: URL
@@ -1343,10 +1396,6 @@ enum VideoRecorder {
             throw ScreenSnipperError.videoFrameAppendFailed(outputURL)
         }
 
-        let frameTime = CMTime(
-            value: frameIndex,
-            timescale: CMTimeScale(max(1, Int((1 / frameDuration).rounded())))
-        )
         if !adaptor.append(pixelBuffer, withPresentationTime: frameTime) {
             throw ScreenSnipperError.videoFrameAppendFailed(outputURL)
         }
@@ -1418,6 +1467,118 @@ enum VideoRecorder {
 
     private static func evenSize(width: Int, height: Int) -> (width: Int, height: Int) {
         (max(2, width - width % 2), max(2, height - height % 2))
+    }
+}
+
+/// Captures what the Mac is playing through ScreenCaptureKit. The tap sits ahead of
+/// the output device, so speakers, headphones, and AirPlay all record the same way.
+final class SystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
+    private static let sampleRate = 48_000
+    private static let channelCount = 2
+
+    static var outputSettings: [String: Any] {
+        [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: sampleRate,
+            AVNumberOfChannelsKey: channelCount,
+            AVEncoderBitRateKey: 160_000
+        ]
+    }
+
+    // All mutable state is confined to this queue, which also receives the samples.
+    private let queue = DispatchQueue(label: "screen-snipper.system-audio")
+    private var stream: SCStream?
+    private var input: AVAssetWriterInput?
+    private var startTime = CMTime.invalid
+    private var pending: [CMSampleBuffer] = []
+
+    static func start(displayID: CGDirectDisplayID) async throws -> SystemAudioCapture {
+        do {
+            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            guard let display = content.displays.first(where: { $0.displayID == displayID }) ?? content.displays.first else {
+                throw ScreenSnipperError.audioCaptureFailed("no display is available to capture.")
+            }
+
+            let configuration = SCStreamConfiguration()
+            configuration.capturesAudio = true
+            configuration.excludesCurrentProcessAudio = true
+            configuration.sampleRate = sampleRate
+            configuration.channelCount = channelCount
+            // The stream always produces video too; frames come from CGDisplayCreateImage,
+            // so keep the unused stream video as cheap as possible.
+            configuration.width = 2
+            configuration.height = 2
+            configuration.minimumFrameInterval = CMTime(value: 1, timescale: 1)
+
+            let capture = SystemAudioCapture()
+            let stream = SCStream(
+                filter: SCContentFilter(display: display, excludingWindows: []),
+                configuration: configuration,
+                delegate: capture
+            )
+            try stream.addStreamOutput(capture, type: .audio, sampleHandlerQueue: capture.queue)
+            // Without a screen output the stream logs every video frame it has to drop.
+            try stream.addStreamOutput(capture, type: .screen, sampleHandlerQueue: capture.queue)
+            try await stream.startCapture()
+            capture.queue.sync { capture.stream = stream }
+            return capture
+        } catch let error as ScreenSnipperError {
+            throw error
+        } catch {
+            throw ScreenSnipperError.audioCaptureFailed(error.localizedDescription)
+        }
+    }
+
+    /// Hands over the writer input once the session has started, flushing audio
+    /// that arrived while the writer was being set up.
+    func beginWriting(to input: AVAssetWriterInput, from startTime: CMTime) {
+        queue.sync {
+            self.input = input
+            self.startTime = startTime
+            let held = pending
+            pending = []
+            held.forEach(append)
+        }
+    }
+
+    func stop() async {
+        let stream = queue.sync { self.stream }
+        try? await stream?.stopCapture()
+        queue.sync {
+            self.stream = nil
+            input?.markAsFinished()
+            input = nil
+            pending = []
+        }
+    }
+
+    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+        guard type == .audio, sampleBuffer.isValid else {
+            return
+        }
+
+        if input == nil {
+            // About two seconds of audio; setup takes far less than that.
+            if pending.count < 200 {
+                pending.append(sampleBuffer)
+            }
+            return
+        }
+        append(sampleBuffer)
+    }
+
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        fputs("screen-snipper: system audio stopped: \(error.localizedDescription)\n", stderr)
+    }
+
+    private func append(_ sampleBuffer: CMSampleBuffer) {
+        guard let input,
+              sampleBuffer.presentationTimeStamp >= startTime,
+              input.isReadyForMoreMediaData
+        else {
+            return
+        }
+        input.append(sampleBuffer)
     }
 }
 

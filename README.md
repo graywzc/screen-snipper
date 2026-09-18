@@ -89,11 +89,16 @@ While the overlay is open:
 - `--output <path>`: explicit output path. The toolbar folder setting is used when this is omitted.
 - `--clipboard`: copy the recording to the clipboard after saving.
 - `--no-save`: skip the output folder and keep the recording in `/tmp/screen-snipper` instead.
+- `--audio`: record system audio with Video recordings. Also available as **Record System Audio** in the toolbar options.
 - `--debug`: print selection and capture coordinate diagnostics.
 - `--toggle`: start `screen-snipper` if closed, or close the running instance.
 - `--help`: show usage.
 
-The toolbar remembers its selected format, folder, clipboard toggle, FPS, max width, and rectangle position between runs.
+The toolbar remembers its selected format, folder, clipboard toggle, system audio toggle, FPS, max width, and rectangle position between runs.
+
+### System audio
+
+With `--audio` or the toolbar toggle on, Video recordings get an AAC track of whatever the Mac is playing. Audio is captured through ScreenCaptureKit ahead of the output device, so it works the same with speakers, headphones, or AirPlay and needs no loopback driver. It is covered by the Screen Recording permission. The microphone is not recorded, and GIFs have no audio.
 
 ### How the clipboard copy works
 

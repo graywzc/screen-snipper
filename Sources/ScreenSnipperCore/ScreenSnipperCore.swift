@@ -7,6 +7,7 @@ public struct Options: Equatable {
     public var output: URL?
     public var copyToClipboard = false
     public var saveFile = true
+    public var audio = false
     public var debug = false
     public var toggle = false
 
@@ -126,6 +127,7 @@ public enum ScreenSnipperError: Error, CustomStringConvertible, Equatable {
     case videoDestinationFailed(URL)
     case videoFrameAppendFailed(URL)
     case videoFinalizeFailed(URL)
+    case audioCaptureFailed(String)
     case noFramesCaptured
 
     public var description: String {
@@ -144,13 +146,15 @@ public enum ScreenSnipperError: Error, CustomStringConvertible, Equatable {
         case .videoDestinationFailed(let url): "Could not create video at \(url.path)."
         case .videoFrameAppendFailed(let url): "Could not add a frame to video at \(url.path)."
         case .videoFinalizeFailed(let url): "Could not finish video at \(url.path)."
+        case .audioCaptureFailed(let message): "Could not capture system audio: \(message)"
         case .noFramesCaptured: "No frames were captured."
         }
     }
 
     public static func == (lhs: ScreenSnipperError, rhs: ScreenSnipperError) -> Bool {
         switch (lhs, rhs) {
-        case (.invalidOption(let left), .invalidOption(let right)):
+        case (.invalidOption(let left), .invalidOption(let right)),
+             (.audioCaptureFailed(let left), .audioCaptureFailed(let right)):
             left == right
         case (.screenRecordingPermissionDenied, .screenRecordingPermissionDenied),
              (.selectionCancelled, .selectionCancelled),
@@ -205,6 +209,8 @@ public func parseArguments(_ arguments: [String]) throws -> Options {
         case "--no-save":
             options.saveFile = false
             options.copyToClipboard = true
+        case "--audio":
+            options.audio = true
         case "--debug":
             options.debug = true
         case "--toggle":
@@ -262,6 +268,7 @@ public func printUsage() {
       --output <path>       Output path. Defaults to ~/Desktop/Screenshot/screen-snipper-YYYYMMDD-HHMMSS.gif.
       --clipboard           Copy the recording to the clipboard after saving.
       --no-save             Copy to clipboard only; the file is kept in /tmp/screen-snipper.
+      --audio               Record system audio with Video recordings.
       --debug               Print capture coordinate diagnostics.
       --toggle              Start screen-snipper if closed, or close the running instance.
       --help                Show this help.

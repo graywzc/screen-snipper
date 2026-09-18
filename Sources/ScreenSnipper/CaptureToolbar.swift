@@ -67,6 +67,7 @@ enum CaptureToolbarPreferences {
     private static let formatKey = "captureToolbar.format"
     private static let fpsKey = "captureToolbar.fps"
     private static let maxWidthKey = "captureToolbar.maxWidth"
+    private static let recordAudioKey = "captureToolbar.recordAudio"
 
     static func save(_ selection: CaptureToolbarSelection) {
         let defaults = UserDefaults.standard
@@ -76,6 +77,7 @@ enum CaptureToolbarPreferences {
         defaults.set(selection.format.rawValue, forKey: formatKey)
         defaults.set(selection.fps, forKey: fpsKey)
         defaults.set(selection.maxWidth ?? 0, forKey: maxWidthKey)
+        defaults.set(selection.recordAudio, forKey: recordAudioKey)
     }
 
     static func saveToFolder(fallback: Bool) -> Bool {
@@ -90,6 +92,13 @@ enum CaptureToolbarPreferences {
             return fallback
         }
         return UserDefaults.standard.bool(forKey: copyToClipboardKey)
+    }
+
+    static func recordAudio(fallback: Bool) -> Bool {
+        guard UserDefaults.standard.object(forKey: recordAudioKey) != nil else {
+            return fallback
+        }
+        return UserDefaults.standard.bool(forKey: recordAudioKey)
     }
 
     static func folderURL() -> URL {
@@ -133,6 +142,7 @@ struct CaptureToolbarSelection {
     var copyToClipboard: Bool
     var fps: Double
     var maxWidth: Int?
+    var recordAudio: Bool
 }
 
 @MainActor
@@ -156,6 +166,9 @@ final class CaptureToolbarState: ObservableObject {
     @Published var maxWidth: RecordingMaxWidth {
         didSet { persist() }
     }
+    @Published var recordAudio: Bool {
+        didSet { persist() }
+    }
 
     init(options: Options) {
         format = CaptureToolbarPreferences.format()
@@ -164,6 +177,7 @@ final class CaptureToolbarState: ObservableObject {
         folderURL = options.output?.deletingLastPathComponent() ?? CaptureToolbarPreferences.folderURL()
         fps = CaptureToolbarPreferences.fps(fallback: options.fps)
         maxWidth = CaptureToolbarPreferences.maxWidth(fallback: options.maxWidth)
+        recordAudio = CaptureToolbarPreferences.recordAudio(fallback: options.audio)
     }
 
     var selection: CaptureToolbarSelection {
@@ -173,7 +187,8 @@ final class CaptureToolbarState: ObservableObject {
             folderURL: folderURL,
             copyToClipboard: copyToClipboard,
             fps: fps.rawValue,
-            maxWidth: maxWidth.value
+            maxWidth: maxWidth.value,
+            recordAudio: recordAudio
         )
     }
 
@@ -395,6 +410,8 @@ struct CaptureToolbarView: View {
             Text(state.folderURL.path)
 
             Toggle("Copy to Clipboard", isOn: $state.copyToClipboard)
+
+            Toggle("Record System Audio (Video)", isOn: $state.recordAudio)
 
             Divider()
 
