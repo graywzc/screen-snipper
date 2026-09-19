@@ -69,8 +69,8 @@ PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" screen-snipper --toggle
 ```
 
 `Shortcuts/ScreenSnipper.shortcut` is the prebuilt macOS Shortcut that runs the
-command above. Installing via Homebrew imports it automatically; otherwise
-double-click the file to add it, then bind a hotkey from the Shortcut details
+command above. Double-click the file to add it (a Homebrew install prints the
+`open` command for its copy), then bind a hotkey from the Shortcut details
 panel in Shortcuts.app.
 
 While the overlay is open:
