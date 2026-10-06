@@ -71,6 +71,10 @@ let tests: [(String, () throws -> Void)] = [
 
         try expect(options.audio == true, "Audio should parse")
     }),
+    ("parses span option", {
+        let options = try parseArguments(["screen-snipper", "--span"])
+        try expect(options.span == true, "Span should parse")
+    }),
     ("parse toggle", {
         let options = try parseArguments(["screen-snipper", "--toggle"])
 
@@ -242,14 +246,130 @@ let tests: [(String, () throws -> Void)] = [
         try expect(target.contains(moved), "Edge-hugging rect should be clamped inside the target, got \(moved)")
         try expect(moved.width == 400 && moved.height == 300, "Clamping should not change a size that fits, got \(moved)")
     }),
+    ("two screens offer a single span choice", {
+        let screens = [
+            CGRect(x: 0, y: 0, width: 1920, height: 1080),
+            CGRect(x: 1920, y: 0, width: 2560, height: 1440)
+        ]
+
+        try expect(SpanPlacement.choices(screens: screens) == [[0, 1]], "Two screens should offer the pair")
+        try expect(SpanPlacement.choices(screens: [screens[0]]).isEmpty, "One screen has nothing to span")
+        try expect(
+            SpanPlacement.bounds(of: screens) == CGRect(x: 0, y: 0, width: 4480, height: 1440),
+            "Span bounds should cover both screens"
+        )
+    }),
+    ("three screens offer touching pairs then all", {
+        let screens = [
+            CGRect(x: 0, y: 0, width: 1920, height: 1080),
+            CGRect(x: 1920, y: 0, width: 1920, height: 1080),
+            CGRect(x: 3840, y: 0, width: 1920, height: 1080)
+        ]
+
+        try expect(
+            SpanPlacement.choices(screens: screens) == [[0, 1], [1, 2], [0, 1, 2]],
+            "Only neighbouring pairs should be offered, got \(SpanPlacement.choices(screens: screens))"
+        )
+    }),
+    ("screens meeting at a corner are not a span pair", {
+        let screens = [
+            CGRect(x: 0, y: 0, width: 1920, height: 1080),
+            CGRect(x: 1920, y: 1080, width: 1920, height: 1080),
+            CGRect(x: 1920, y: 0, width: 1920, height: 1080)
+        ]
+
+        try expect(
+            SpanPlacement.choices(screens: screens) == [[0, 2], [1, 2], [0, 1, 2]],
+            "Corner-touching screens should not pair, got \(SpanPlacement.choices(screens: screens))"
+        )
+    }),
+    ("capture layout on one screen is a single piece at its scale", {
+        let layout = CaptureLayout(
+            selection: CGRect(x: 100, y: 100, width: 400, height: 300),
+            screens: [(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080), scale: 2)]
+        )
+
+        try expect(layout?.pieces.count == 1, "One screen should give one piece")
+        try expect(layout?.pixelWidth == 800 && layout?.pixelHeight == 600, "Frame should use the screen scale")
+        try expect(
+            layout?.pieces.first?.canvasRect == CGRect(x: 0, y: 0, width: 800, height: 600),
+            "The piece should fill the frame"
+        )
+    }),
+    ("capture layout places two screens side by side", {
+        let layout = CaptureLayout(
+            selection: CGRect(x: 0, y: 0, width: 4480, height: 1440),
+            screens: [
+                (frame: CGRect(x: 0, y: 0, width: 1920, height: 1080), scale: 1),
+                (frame: CGRect(x: 1920, y: 0, width: 2560, height: 1440), scale: 1)
+            ]
+        )
+
+        try expect(layout?.pixelWidth == 4480 && layout?.pixelHeight == 1440, "Frame should cover both screens")
+        try expect(
+            layout?.pieces.map { $0.canvasRect } == [
+                CGRect(x: 0, y: 0, width: 1920, height: 1080),
+                CGRect(x: 1920, y: 0, width: 2560, height: 1440)
+            ],
+            "Pieces should keep the screen arrangement, got \(String(describing: layout?.pieces))"
+        )
+    }),
+    ("capture layout scales a lower-density screen up", {
+        let layout = CaptureLayout(
+            selection: CGRect(x: 0, y: 0, width: 3360, height: 1080),
+            screens: [
+                (frame: CGRect(x: 0, y: 0, width: 1440, height: 900), scale: 2),
+                (frame: CGRect(x: 1440, y: 0, width: 1920, height: 1080), scale: 1)
+            ]
+        )
+
+        try expect(layout?.pixelWidth == 6720 && layout?.pixelHeight == 2160, "Frame should use the sharper scale")
+        try expect(
+            layout?.pieces.last?.canvasRect == CGRect(x: 2880, y: 0, width: 3840, height: 2160),
+            "The 1x screen should be drawn at twice its size"
+        )
+    }),
+    ("capture layout shrinks to max width", {
+        let layout = CaptureLayout(
+            selection: CGRect(x: 0, y: 0, width: 3840, height: 1080),
+            screens: [
+                (frame: CGRect(x: 0, y: 0, width: 1920, height: 1080), scale: 1),
+                (frame: CGRect(x: 1920, y: 0, width: 1920, height: 1080), scale: 1)
+            ],
+            maxWidth: 1920
+        )
+
+        try expect(layout?.pixelWidth == 1920 && layout?.pixelHeight == 540, "Frame should be reduced as a whole")
+        try expect(
+            layout?.pieces.last?.canvasRect == CGRect(x: 960, y: 0, width: 960, height: 540),
+            "Pieces should shrink with the frame"
+        )
+    }),
+    ("capture layout trims a selection to the screens it touches", {
+        let layout = CaptureLayout(
+            selection: CGRect(x: 1800, y: -200, width: 400, height: 600),
+            screens: [
+                (frame: CGRect(x: 0, y: 0, width: 1920, height: 1080), scale: 1),
+                (frame: CGRect(x: 1920, y: 0, width: 1920, height: 1080), scale: 1)
+            ]
+        )
+
+        try expect(layout?.pixelWidth == 400 && layout?.pixelHeight == 400, "Off-screen overhang should be dropped")
+        try expect(
+            CaptureLayout(selection: CGRect(x: 5000, y: 0, width: 100, height: 100), screens: [(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080), scale: 1)]) == nil,
+            "A selection on no screen has no layout"
+        )
+    }),
     ("shortcut dispatcher routes shortcuts independently", {
         var recordCount = 0
         var closeCount = 0
         var moveScreenCount = 0
+        var spanScreensCount = 0
         let dispatcher = AppShortcutDispatcher(
             record: { recordCount += 1 },
             close: { closeCount += 1 },
-            moveScreen: { moveScreenCount += 1 }
+            moveScreen: { moveScreenCount += 1 },
+            spanScreens: { spanScreensCount += 1 }
         )
 
         try expect(dispatcher.dispatch(id: AppShortcut.record.rawValue), "Record shortcut should dispatch")
@@ -263,13 +383,18 @@ let tests: [(String, () throws -> Void)] = [
         try expect(dispatcher.dispatch(id: AppShortcut.moveScreen.rawValue), "Move-screen shortcut should dispatch")
         try expect(moveScreenCount == 1, "Move-screen action should run once")
         try expect(recordCount == 1 && closeCount == 1, "Other actions should not run for move-screen shortcut")
+
+        try expect(dispatcher.dispatch(id: AppShortcut.spanScreens.rawValue), "Span-screens shortcut should dispatch")
+        try expect(spanScreensCount == 1, "Span-screens action should run once")
+        try expect(recordCount == 1 && closeCount == 1 && moveScreenCount == 1, "Other actions should not run for span-screens shortcut")
     }),
     ("shortcut dispatcher ignores unknown shortcuts", {
         var actionCount = 0
         let dispatcher = AppShortcutDispatcher(
             record: { actionCount += 1 },
             close: { actionCount += 1 },
-            moveScreen: { actionCount += 1 }
+            moveScreen: { actionCount += 1 },
+            spanScreens: { actionCount += 1 }
         )
 
         try expect(dispatcher.dispatch(id: 999) == false, "Unknown shortcut should not dispatch")
@@ -291,8 +416,8 @@ let tests: [(String, () throws -> Void)] = [
             }
         )
 
-        try expect(registered == [.record, .close, .moveScreen], "All shortcuts should be attempted")
-        try expect(optionalFailures == [.close, .moveScreen], "Optional failures should be reported")
+        try expect(registered == [.record, .close, .moveScreen, .spanScreens], "All shortcuts should be attempted")
+        try expect(optionalFailures == [.close, .moveScreen, .spanScreens], "Optional failures should be reported")
     }),
     ("shortcut registration requires record", {
         var registered: [AppShortcut] = []

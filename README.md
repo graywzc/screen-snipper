@@ -77,8 +77,9 @@ While the overlay is open:
 
 - `Command-Shift-Space`: start or stop recording.
 - `Command-Shift-M`: jump the capture area to the next monitor.
+- `Command-Shift-B`: snap the capture area across both monitors; press again to return to the previous area.
 - `Command-Shift-7`: close the app when it is focused, matching the suggested launcher shortcut.
-- Floating toolbar: choose GIF or Video, output options, FPS, and max width; jump the capture area to the next monitor or expand it to fill the current one.
+- Floating toolbar: choose GIF or Video, output options, FPS, and max width; jump the capture area to the next monitor, expand it to fill the current one, or snap it across monitors.
 - Rectangle frame: move the selected region.
 - Blue handles: resize the selected region.
 
@@ -90,11 +91,18 @@ While the overlay is open:
 - `--clipboard`: copy the recording to the clipboard after saving.
 - `--no-save`: skip the output folder and keep the recording in `/tmp/screen-snipper` instead.
 - `--audio`: record system audio with Video recordings. Also available as **Record System Audio** in the toolbar options.
+- `--span`: start with the capture area snapped to all monitors.
 - `--debug`: print selection and capture coordinate diagnostics.
 - `--toggle`: start `screen-snipper` if closed, or close the running instance.
 - `--help`: show usage.
 
 The toolbar remembers its selected format, folder, clipboard toggle, system audio toggle, FPS, max width, and rectangle position between runs.
+
+### Recording across monitors
+
+A capture area that covers more than one monitor is recorded as one picture, with the monitors laid out as they are arranged in System Settings. The span button in the toolbar (or `Command-Shift-B`) snaps the area to exactly two monitors without dragging; with three or more it offers each neighbouring pair and all of them, and the shortcut steps through those. Dragging or resizing the area turns it back into a free selection. A snapped area is remembered and follows the monitors if their arrangement changes.
+
+Monitors of different heights, or offset from each other, leave space that belongs to neither; it is recorded as black. When the monitors differ in pixel density the recording uses the sharper one, so set a max width to keep the file small. System audio is recorded the same way as for a single monitor.
 
 ### System audio
 

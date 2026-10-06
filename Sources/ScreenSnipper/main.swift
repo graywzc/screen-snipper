@@ -48,6 +48,32 @@ enum SelectionPreferences {
     }
 }
 
+/// The displays the selection is snapped across. Stored as displays rather than a
+/// rect so the selection follows them when the arrangement changes.
+enum SpanPreferences {
+    private static let displayIDsKey = "selectionSpan.displayIDs"
+
+    static func load() -> [CGDirectDisplayID]? {
+        guard let values = UserDefaults.standard.array(forKey: displayIDsKey) as? [Int], values.count >= 2 else {
+            return nil
+        }
+        return values.map { CGDirectDisplayID($0) }
+    }
+
+    static func save(_ displayIDs: [CGDirectDisplayID]?) {
+        if let displayIDs {
+            UserDefaults.standard.set(displayIDs.map { Int($0) }, forKey: displayIDsKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: displayIDsKey)
+        }
+    }
+}
+
+struct SpanChoice {
+    let title: String
+    let displayIDs: [CGDirectDisplayID]
+}
+
 private struct SelectionResizeEdges: OptionSet {
     let rawValue: Int
 
@@ -126,12 +152,14 @@ final class AppHotKeys: @unchecked Sendable {
     init(
         record: @escaping @Sendable () -> Void,
         close: @escaping @Sendable () -> Void,
-        moveScreen: @escaping @Sendable () -> Void
+        moveScreen: @escaping @Sendable () -> Void,
+        spanScreens: @escaping @Sendable () -> Void
     ) throws {
         dispatcher = AppShortcutDispatcher(
             record: { OperationQueue.main.addOperation(record) },
             close: { OperationQueue.main.addOperation(close) },
-            moveScreen: { OperationQueue.main.addOperation(moveScreen) }
+            moveScreen: { OperationQueue.main.addOperation(moveScreen) },
+            spanScreens: { OperationQueue.main.addOperation(spanScreens) }
         )
         try install()
     }
@@ -219,6 +247,8 @@ final class AppHotKeys: @unchecked Sendable {
             26
         case .moveScreen:
             UInt32(kVK_ANSI_M)
+        case .spanScreens:
+            UInt32(kVK_ANSI_B)
         }
     }
 
@@ -235,6 +265,7 @@ private extension AppShortcut {
         case .record: "record"
         case .close: "close"
         case .moveScreen: "move screen"
+        case .spanScreens: "span screens"
         }
     }
 }
@@ -597,11 +628,15 @@ final class SelectionController {
                 view.selectionRect = selectionRect
             }
             syncInteractionWindows()
-            if let selectionRect {
+            // A snapped rect is not saved, so the stored one stays the free
+            // selection to return to.
+            if let selectionRect, spannedDisplayIDs == nil {
                 SelectionPreferences.save(selectionRect)
             }
         }
     }
+    private var spannedDisplayIDs: [CGDirectDisplayID]? = SpanPreferences.load()
+    var onSpanChange: (() -> Void)?
 
     init() {
         screenObserver = NotificationCenter.default.addObserver(
@@ -618,6 +653,9 @@ final class SelectionController {
     func show() {
         if windows.isEmpty {
             makeWindows()
+        }
+        if spannedDisplayIDs != nil {
+            resnapSpan()
         }
         if selectionRect == nil {
             selectionRect = defaultSelectionRect()
@@ -756,14 +794,13 @@ final class SelectionController {
     /// keeps its size where it fits and lands at the same relative position
     /// within the target's visible frame, clear of the menu bar and Dock.
     func moveToNextScreen() {
-        guard let selectionRect, NSScreen.screens.count > 1 else { return }
-
-        let screens = NSScreen.screens.sorted { first, second in
-            if first.frame.minX != second.frame.minX {
-                return first.frame.minX < second.frame.minX
-            }
-            return first.frame.minY < second.frame.minY
+        guard NSScreen.screens.count > 1 else { return }
+        if spannedDisplayIDs != nil {
+            endSpan()
         }
+        guard let selectionRect else { return }
+
+        let screens = orderedScreens()
         guard let current = NSScreen.screen(containingLargestAreaOf: selectionRect),
               let index = screens.firstIndex(of: current)
         else {
@@ -785,7 +822,106 @@ final class SelectionController {
         else {
             return
         }
+        setSpannedDisplayIDs(nil)
         self.selectionRect = screen.frame.integral
+    }
+
+    /// The groups of monitors the selection can snap to, left to right.
+    var spanChoices: [SpanChoice] {
+        let screens = orderedScreens().compactMap { screen in
+            screen.displayID.map { (screen: screen, displayID: $0) }
+        }
+        return SpanPlacement.choices(screens: screens.map { $0.screen.frame }).map { indices in
+            let title: String
+            if screens.count == 2 {
+                title = "Both Monitors"
+            } else if indices.count == screens.count {
+                title = "All Monitors"
+            } else {
+                title = indices.map { screens[$0].screen.localizedName }.joined(separator: " + ")
+            }
+            return SpanChoice(title: title, displayIDs: indices.map { screens[$0].displayID })
+        }
+    }
+
+    var activeSpanIndex: Int? {
+        guard let spannedDisplayIDs else { return nil }
+        return spanChoices.firstIndex { Set($0.displayIDs) == Set(spannedDisplayIDs) }
+    }
+
+    /// Steps through the span choices and then back to the free selection. With
+    /// two monitors that is a plain on/off toggle.
+    func cycleSpan() {
+        let choices = spanChoices
+        guard !choices.isEmpty else { return }
+
+        guard let active = activeSpanIndex else {
+            span(choices[0])
+            return
+        }
+        if active + 1 < choices.count {
+            span(choices[active + 1])
+        } else {
+            endSpan()
+        }
+    }
+
+    /// Snaps to the choice at `index`, or back to the free selection when that
+    /// choice is already active.
+    func selectSpan(at index: Int) {
+        let choices = spanChoices
+        guard choices.indices.contains(index) else { return }
+        if activeSpanIndex == index {
+            endSpan()
+        } else {
+            span(choices[index])
+        }
+    }
+
+    func spanAllScreens() {
+        guard let choice = spanChoices.last else { return }
+        span(choice)
+    }
+
+    private func span(_ choice: SpanChoice) {
+        setSpannedDisplayIDs(choice.displayIDs)
+        resnapSpan()
+    }
+
+    /// Returns to the selection in use before snapping.
+    private func endSpan() {
+        setSpannedDisplayIDs(nil)
+        selectionRect = SelectionPreferences.load() ?? defaultSelectionRect()
+    }
+
+    /// Fits the selection to the spanned displays as they are arranged now, or
+    /// ends the span when one of them is gone.
+    private func resnapSpan() {
+        guard let spannedDisplayIDs else { return }
+        let frames = spannedDisplayIDs.compactMap { displayID in
+            NSScreen.screens.first { $0.displayID == displayID }?.frame
+        }
+        guard frames.count == spannedDisplayIDs.count, frames.count >= 2 else {
+            endSpan()
+            return
+        }
+        selectionRect = SpanPlacement.bounds(of: frames).integral
+    }
+
+    private func setSpannedDisplayIDs(_ displayIDs: [CGDirectDisplayID]?) {
+        guard spannedDisplayIDs != displayIDs else { return }
+        spannedDisplayIDs = displayIDs
+        SpanPreferences.save(displayIDs)
+        onSpanChange?()
+    }
+
+    private func orderedScreens() -> [NSScreen] {
+        NSScreen.screens.sorted { first, second in
+            if first.frame.minX != second.frame.minX {
+                return first.frame.minX < second.frame.minX
+            }
+            return first.frame.minY < second.frame.minY
+        }
     }
 
     /// Drops updates that would strand the selection where no screen shows enough
@@ -796,6 +932,10 @@ final class SelectionController {
         guard SelectionPlacement.isReachable(rect, onScreens: NSScreen.screens.map(\.frame)) else {
             return
         }
+        // Dragging or resizing a snapped selection makes it a free one again.
+        if rect != selectionRect {
+            setSpannedDisplayIDs(nil)
+        }
         selectionRect = rect
     }
 
@@ -804,14 +944,18 @@ final class SelectionController {
         windows.forEach { $0.orderOut(nil) }
         windows.removeAll()
 
-        if let selectionRect,
-           !SelectionPlacement.isReachable(selectionRect, onScreens: NSScreen.screens.map(\.frame)) {
+        if spannedDisplayIDs != nil {
+            resnapSpan()
+        } else if let selectionRect,
+                  !SelectionPlacement.isReachable(selectionRect, onScreens: NSScreen.screens.map(\.frame)) {
             self.selectionRect = defaultSelectionRect()
         }
 
         if wasVisible {
             show()
         }
+        // The monitors on offer may have changed even if the span did not.
+        onSpanChange?()
     }
 
     private func defaultSelectionRect() -> CGRect {
@@ -855,6 +999,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.toggleQuitSignal = toggleQuitSignal
 
         selector.show()
+        if options.span {
+            selector.spanAllScreens()
+        }
         keyboardShortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if Self.isLauncherShortcut(event) {
                 self?.cancel()
@@ -868,6 +1015,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             if Self.isMoveScreenShortcut(event) {
                 self?.selector.moveToNextScreen()
+                return nil
+            }
+
+            if Self.isSpanScreensShortcut(event) {
+                self?.selector.cycleSpan()
                 return nil
             }
 
@@ -890,6 +1042,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     Task { @MainActor in
                         self?.selector.moveToNextScreen()
                     }
+                },
+                spanScreens: { [weak self] in
+                    Task { @MainActor in
+                        self?.selector.cycleSpan()
+                    }
                 }
             )
         } catch {
@@ -908,8 +1065,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             fillScreen: { [weak self] in
                 self?.selector.fillCurrentScreen()
+            },
+            cycleSpan: { [weak self] in
+                self?.selector.cycleSpan()
+            },
+            selectSpan: { [weak self] index in
+                self?.selector.selectSpan(at: index)
             }
         )
+
+        selector.onSpanChange = { [weak self] in
+            self?.syncSpanToolbar()
+        }
+        syncSpanToolbar()
+    }
+
+    private func syncSpanToolbar() {
+        toolbar.setSpan(choices: selector.spanChoices.map(\.title), activeIndex: selector.activeSpanIndex)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -934,6 +1106,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static func isMoveScreenShortcut(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         return flags == [.command, .shift] && event.keyCode == UInt16(kVK_ANSI_M)
+    }
+
+    private static func isSpanScreensShortcut(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return flags == [.command, .shift] && event.keyCode == UInt16(kVK_ANSI_B)
     }
 
     private func toggleRecording(toolbarSelection: CaptureToolbarSelection) {
@@ -1079,48 +1256,134 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 struct CaptureRegion {
-    let displayID: CGDirectDisplayID
+    struct Display {
+        let id: CGDirectDisplayID
+        let frame: CGRect
+        let scale: CGFloat
+        let bounds: CGRect
+    }
+
     let selectionRect: CGRect
-    let screenFrame: CGRect
-    let displayBounds: CGRect
-    let displayRect: CGRect
+    /// Every display the selection touches, largest share first.
+    let displays: [Display]
+    private let mainDisplayHeight: CGFloat
 
     init(selectionRect: CGRect) throws {
-        guard let screen = NSScreen.screen(containingLargestAreaOf: selectionRect),
-              let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
-        else {
+        let displays = NSScreen.screens.compactMap { screen -> Display? in
+            guard let displayID = screen.displayID,
+                  screen.frame.intersection(selectionRect).area > 0
+            else {
+                return nil
+            }
+            return Display(
+                id: displayID,
+                frame: screen.frame,
+                scale: screen.backingScaleFactor,
+                bounds: CGDisplayBounds(displayID)
+            )
+        }.sorted { first, second in
+            first.frame.intersection(selectionRect).area > second.frame.intersection(selectionRect).area
+        }
+
+        guard CaptureLayout(
+            selection: selectionRect,
+            screens: displays.map { (frame: $0.frame, scale: $0.scale) }
+        ) != nil else {
             throw ScreenSnipperError.displayNotFound(selectionRect)
         }
 
-        let clippedRect = selectionRect.intersection(screen.frame)
-        let displayBounds = CGDisplayBounds(displayID)
-        let mainDisplayBounds = CGDisplayBounds(CGMainDisplayID())
-        let flippedGlobalY = mainDisplayBounds.height - clippedRect.maxY
-
-        self.displayID = displayID
         self.selectionRect = selectionRect
-        self.screenFrame = screen.frame
-        self.displayBounds = displayBounds
-        self.displayRect = CGRect(
-            x: clippedRect.minX - displayBounds.minX,
-            y: flippedGlobalY - displayBounds.minY,
-            width: clippedRect.width,
-            height: clippedRect.height
+        self.displays = displays
+        mainDisplayHeight = CGDisplayBounds(CGMainDisplayID()).height
+    }
+
+    private var layoutScreens: [(frame: CGRect, scale: CGFloat)] {
+        displays.map { (frame: $0.frame, scale: $0.scale) }
+    }
+
+    /// The display holding most of the selection.
+    var displayID: CGDirectDisplayID {
+        displays[0].id
+    }
+
+    /// One frame of the selection. A selection on a single display comes back
+    /// at that display's native size; one across displays is drawn into a single
+    /// image that keeps their arrangement, already reduced to `maxWidth`.
+    func captureImage(maxWidth: Int?) -> CGImage? {
+        guard let layout = CaptureLayout(
+            selection: selectionRect,
+            screens: layoutScreens,
+            maxWidth: maxWidth
+        ) else {
+            return nil
+        }
+
+        if layout.pieces.count == 1, let piece = layout.pieces.first {
+            let display = displays[piece.screenIndex]
+            return CGDisplayCreateImage(display.id, rect: displayRect(for: piece.sourceRect, on: display))
+        }
+
+        guard let context = CGContext(
+            data: nil,
+            width: layout.pixelWidth,
+            height: layout.pixelHeight,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return nil
+        }
+
+        // Space between offset displays belongs to none of them and stays black.
+        context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: layout.pixelWidth, height: layout.pixelHeight))
+        context.interpolationQuality = .medium
+
+        var captured = false
+        for piece in layout.pieces {
+            let display = displays[piece.screenIndex]
+            guard let image = CGDisplayCreateImage(display.id, rect: displayRect(for: piece.sourceRect, on: display)) else {
+                continue
+            }
+            context.draw(image, in: piece.canvasRect)
+            captured = true
+        }
+        return captured ? context.makeImage() : nil
+    }
+
+    /// Converts a rect in global screen points, which run up from the main
+    /// display's bottom edge, to the top-left based rect CoreGraphics captures.
+    private func displayRect(for sourceRect: CGRect, on display: Display) -> CGRect {
+        CGRect(
+            x: sourceRect.minX - display.bounds.minX,
+            y: mainDisplayHeight - sourceRect.maxY - display.bounds.minY,
+            width: sourceRect.width,
+            height: sourceRect.height
         ).integral
     }
 
     var debugDescription: String {
-        """
-        selectionRect: \(selectionRect)
-        screenFrame: \(screenFrame)
-        displayID: \(displayID)
-        displayBounds: \(displayBounds)
-        displayRect: \(displayRect)
-        """
+        let layout = CaptureLayout(selection: selectionRect, screens: layoutScreens)
+        let pieces = (layout?.pieces ?? []).map { piece in
+            let display = displays[piece.screenIndex]
+            return """
+            displayID: \(display.id)
+            screenFrame: \(display.frame)
+            displayBounds: \(display.bounds)
+            displayRect: \(displayRect(for: piece.sourceRect, on: display))
+            canvasRect: \(piece.canvasRect)
+            """
+        }
+        return (["selectionRect: \(selectionRect)"] + pieces).joined(separator: "\n")
     }
 }
 
 extension NSScreen {
+    var displayID: CGDirectDisplayID? {
+        deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+    }
+
     static func screen(containingLargestAreaOf rect: CGRect) -> NSScreen? {
         screens.max { first, second in
             first.frame.intersection(rect).area < second.frame.intersection(rect).area
@@ -1175,7 +1438,7 @@ enum GifRecorder {
 
             let targetTime = Date().addingTimeInterval(delay)
 
-            guard let capturedImage = CGDisplayCreateImage(region.displayID, rect: region.displayRect) else {
+            guard let capturedImage = region.captureImage(maxWidth: maxWidth) else {
                 if frames.isEmpty {
                     throw ScreenSnipperError.captureFailed
                 }
@@ -1284,7 +1547,7 @@ enum VideoRecorder {
         // Frames are stamped with the host clock, the same clock system audio
         // buffers carry, so the tracks stay in sync even when a capture runs slow.
         let startTime = hostTime()
-        guard let firstCapture = CGDisplayCreateImage(region.displayID, rect: region.displayRect) else {
+        guard let firstCapture = region.captureImage(maxWidth: maxWidth) else {
             throw ScreenSnipperError.captureFailed
         }
 
@@ -1350,7 +1613,7 @@ enum VideoRecorder {
             let targetTime = Date().addingTimeInterval(frameDuration)
 
             let frameTime = hostTime()
-            guard let capturedImage = CGDisplayCreateImage(region.displayID, rect: region.displayRect) else {
+            guard let capturedImage = region.captureImage(maxWidth: maxWidth) else {
                 continue
             }
 
