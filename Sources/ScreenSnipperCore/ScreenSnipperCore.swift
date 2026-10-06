@@ -8,6 +8,7 @@ public struct Options: Equatable {
     public var copyToClipboard = false
     public var saveFile = true
     public var audio = false
+    public var span = false
     public var debug = false
     public var toggle = false
 
@@ -18,6 +19,7 @@ public enum AppShortcut: UInt32, Sendable {
     case record = 1
     case close = 2
     case moveScreen = 3
+    case spanScreens = 4
 }
 
 public struct AppShortcutRegistrationPlan {
@@ -32,7 +34,7 @@ public struct AppShortcutRegistrationPlan {
     ) throws {
         try register(.record)
 
-        for shortcut in [AppShortcut.close, .moveScreen] {
+        for shortcut in [AppShortcut.close, .moveScreen, .spanScreens] {
             do {
                 try register(shortcut)
             } catch {
@@ -46,15 +48,18 @@ public struct AppShortcutDispatcher {
     private let record: () -> Void
     private let close: () -> Void
     private let moveScreen: () -> Void
+    private let spanScreens: () -> Void
 
     public init(
         record: @escaping () -> Void,
         close: @escaping () -> Void,
-        moveScreen: @escaping () -> Void
+        moveScreen: @escaping () -> Void,
+        spanScreens: @escaping () -> Void
     ) {
         self.record = record
         self.close = close
         self.moveScreen = moveScreen
+        self.spanScreens = spanScreens
     }
 
     @discardableResult
@@ -70,6 +75,8 @@ public struct AppShortcutDispatcher {
             close()
         case .moveScreen:
             moveScreen()
+        case .spanScreens:
+            spanScreens()
         }
         return true
     }
@@ -113,6 +120,91 @@ public enum SelectionPlacement {
             width: width.rounded(.down),
             height: height.rounded(.down)
         )
+    }
+}
+
+public enum SpanPlacement {
+    /// The groups of screens a selection can snap to, as indices into `screens`.
+    /// Two screens offer the pair; more offer every pair that shares an edge,
+    /// then all of them. A pair that does not touch would take in whatever sits
+    /// between it, so it is left to the all-screens choice.
+    public static func choices(screens: [CGRect]) -> [[Int]] {
+        guard screens.count >= 2 else { return [] }
+        guard screens.count > 2 else { return [[0, 1]] }
+
+        var choices: [[Int]] = []
+        for first in screens.indices {
+            for second in screens.indices where second > first && sharesEdge(screens[first], screens[second]) {
+                choices.append([first, second])
+            }
+        }
+        choices.append(Array(screens.indices))
+        return choices
+    }
+
+    /// The smallest rect covering every given screen.
+    public static func bounds(of screens: [CGRect]) -> CGRect {
+        screens.reduce(CGRect.null) { $0.union($1) }
+    }
+
+    private static func sharesEdge(_ first: CGRect, _ second: CGRect) -> Bool {
+        // Growing one rect by a point makes neighbours overlap along their shared
+        // edge; screens that only meet at a corner overlap in a single point.
+        let overlap = first.insetBy(dx: -1, dy: -1).intersection(second)
+        return !overlap.isNull && max(overlap.width, overlap.height) > 2
+    }
+}
+
+/// Where each screen's part of a selection lands in the recorded frame. Screens
+/// keep their arrangement, so space no screen covers is left empty.
+public struct CaptureLayout: Equatable {
+    public struct Piece: Equatable {
+        public let screenIndex: Int
+        /// The part of the selection on this screen, in global screen points.
+        public let sourceRect: CGRect
+        /// Where that part is drawn, in frame pixels from the bottom-left corner.
+        public let canvasRect: CGRect
+    }
+
+    public let pieces: [Piece]
+    public let pixelWidth: Int
+    public let pixelHeight: Int
+
+    /// Returns nil when the selection lies on no screen. The frame uses the
+    /// sharpest screen's scale, so a lower-density screen is scaled up to match,
+    /// and is reduced as a whole when it would be wider than `maxWidth`.
+    public init?(selection: CGRect, screens: [(frame: CGRect, scale: CGFloat)], maxWidth: Int? = nil) {
+        var parts: [(index: Int, rect: CGRect)] = []
+        for (index, screen) in screens.enumerated() {
+            let visible = screen.frame.intersection(selection)
+            guard !visible.isNull else { continue }
+            let rect = visible.integral
+            if rect.width >= 1, rect.height >= 1 {
+                parts.append((index, rect))
+            }
+        }
+        guard !parts.isEmpty else { return nil }
+
+        let bounds = SpanPlacement.bounds(of: parts.map { $0.rect })
+        var scale = parts.map { screens[$0.index].scale }.max() ?? 1
+        if let maxWidth, bounds.width * scale > CGFloat(maxWidth) {
+            scale = CGFloat(maxWidth) / bounds.width
+        }
+
+        pixelWidth = max(1, Int((bounds.width * scale).rounded()))
+        pixelHeight = max(1, Int((bounds.height * scale).rounded()))
+        pieces = parts.map { part in
+            Piece(
+                screenIndex: part.index,
+                sourceRect: part.rect,
+                canvasRect: CGRect(
+                    x: (part.rect.minX - bounds.minX) * scale,
+                    y: (part.rect.minY - bounds.minY) * scale,
+                    width: part.rect.width * scale,
+                    height: part.rect.height * scale
+                )
+            )
+        }
     }
 }
 
@@ -211,6 +303,8 @@ public func parseArguments(_ arguments: [String]) throws -> Options {
             options.copyToClipboard = true
         case "--audio":
             options.audio = true
+        case "--span":
+            options.span = true
         case "--debug":
             options.debug = true
         case "--toggle":
@@ -269,6 +363,7 @@ public func printUsage() {
       --clipboard           Copy the recording to the clipboard after saving.
       --no-save             Copy to clipboard only; the file is kept in /tmp/screen-snipper.
       --audio               Record system audio with Video recordings.
+      --span                Start with the capture area snapped to all monitors.
       --debug               Print capture coordinate diagnostics.
       --toggle              Start screen-snipper if closed, or close the running instance.
       --help                Show this help.

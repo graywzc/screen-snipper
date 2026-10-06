@@ -148,6 +148,8 @@ struct CaptureToolbarSelection {
 @MainActor
 final class CaptureToolbarState: ObservableObject {
     @Published var isRecording = false
+    @Published var spanChoices: [String] = []
+    @Published var activeSpanIndex: Int?
     @Published var format: RecordingFormat {
         didSet { persist() }
     }
@@ -220,6 +222,8 @@ final class CaptureToolbarController {
     private var cancelAction: (() -> Void)?
     private var moveScreenAction: (() -> Void)?
     private var fillScreenAction: (() -> Void)?
+    private var cycleSpanAction: (() -> Void)?
+    private var selectSpanAction: ((Int) -> Void)?
 
     init(options: Options) {
         state = CaptureToolbarState(options: options)
@@ -229,12 +233,16 @@ final class CaptureToolbarController {
         recordToggle: @escaping (CaptureToolbarSelection) -> Void,
         cancel: @escaping () -> Void,
         moveScreen: @escaping () -> Void,
-        fillScreen: @escaping () -> Void
+        fillScreen: @escaping () -> Void,
+        cycleSpan: @escaping () -> Void,
+        selectSpan: @escaping (Int) -> Void
     ) {
         self.recordToggle = recordToggle
         cancelAction = cancel
         moveScreenAction = moveScreen
         fillScreenAction = fillScreen
+        cycleSpanAction = cycleSpan
+        selectSpanAction = selectSpan
 
         if panel == nil {
             panel = makePanel()
@@ -254,6 +262,12 @@ final class CaptureToolbarController {
         state.isRecording = isRecording
     }
 
+    /// The monitor groups the selection can snap to, and the one it is snapped to.
+    func setSpan(choices: [String], activeIndex: Int?) {
+        state.spanChoices = choices
+        state.activeSpanIndex = activeIndex
+    }
+
     func hide() {
         panel?.orderOut(nil)
     }
@@ -269,7 +283,7 @@ final class CaptureToolbarController {
 
     private func makePanel() -> NSPanel {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 566, height: 74),
+            contentRect: NSRect(x: 0, y: 0, width: 602, height: 74),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -292,7 +306,9 @@ final class CaptureToolbarController {
                     self.recordToggle?(self.state.selection)
                 },
                 moveScreen: { [weak self] in self?.moveScreenAction?() },
-                fillScreen: { [weak self] in self?.fillScreenAction?() }
+                fillScreen: { [weak self] in self?.fillScreenAction?() },
+                cycleSpan: { [weak self] in self?.cycleSpanAction?() },
+                selectSpan: { [weak self] index in self?.selectSpanAction?(index) }
             )
         )
         return panel
@@ -315,6 +331,8 @@ struct CaptureToolbarView: View {
     let toggleRecording: () -> Void
     let moveScreen: () -> Void
     let fillScreen: () -> Void
+    let cycleSpan: () -> Void
+    let selectSpan: (Int) -> Void
 
     @State private var showsRecordShortcut = false
     @State private var showsMoveScreenShortcut = false
@@ -357,6 +375,8 @@ struct CaptureToolbarView: View {
             .buttonStyle(.plain)
             .help("Fill the current monitor")
 
+            spanControl
+
             Button(action: toggleRecording) {
                 Text(recordButtonTitle)
                     .foregroundStyle(.black)
@@ -389,12 +409,55 @@ struct CaptureToolbarView: View {
                 .stroke(.white.opacity(0.18), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.24), radius: 18, y: 8)
-        .frame(width: 566, height: 74)
+        .frame(width: 602, height: 74)
         .help("Drag to move")
     }
 
     private var recordButtonTitle: String {
         showsRecordShortcut ? "⌘ ⇧ Space" : (state.isRecording ? "Stop" : "Record")
+    }
+
+    /// One click snaps across both monitors; with more than two, a menu picks which.
+    @ViewBuilder
+    private var spanControl: some View {
+        if state.spanChoices.count > 1 {
+            Menu {
+                ForEach(Array(state.spanChoices.enumerated()), id: \.offset) { index, title in
+                    Toggle(title, isOn: Binding(
+                        get: { state.activeSpanIndex == index },
+                        set: { _ in selectSpan(index) }
+                    ))
+                }
+            } label: {
+                spanIcon
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Snap to several monitors (⌘⇧B steps through them)")
+        } else {
+            Button(action: cycleSpan) {
+                spanIcon
+            }
+            .buttonStyle(.plain)
+            .disabled(state.spanChoices.isEmpty)
+            .help(spanHelp)
+        }
+    }
+
+    private var spanIcon: some View {
+        Image(systemName: "rectangle.split.2x1")
+            .foregroundStyle(state.activeSpanIndex == nil ? Color.primary : Color.accentColor)
+            .frame(width: 24, height: 24)
+    }
+
+    private var spanHelp: String {
+        if state.spanChoices.isEmpty {
+            return "Snapping across monitors needs a second monitor"
+        }
+        return state.activeSpanIndex == nil
+            ? "Snap to both monitors (⌘⇧B)"
+            : "Return to the previous selection (⌘⇧B)"
     }
 
     private var optionsMenu: some View {
